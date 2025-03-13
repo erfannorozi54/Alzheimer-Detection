@@ -393,7 +393,7 @@ class FeatureSelectionComparison:
         ax.set_xticklabels(methods, rotation=45, ha="right")
         ax.legend()
         plt.tight_layout()
-        plt.show()
+        plt.savefig("results/performance_comparison.png")
 
         # Plot 2: Selection time comparison
         plt.figure(figsize=(10, 5))
@@ -404,7 +404,7 @@ class FeatureSelectionComparison:
         plt.ylabel("Time (seconds)")
         plt.xticks(rotation=45, ha="right")
         plt.tight_layout()
-        plt.show()
+        plt.savefig("results/selection_time_comparison.png")
 
         # Plot 3: Heatmap of metrics
         plt.figure(figsize=(12, 8))
@@ -427,4 +427,4 @@ class FeatureSelectionComparison:
         plt.yticks(range(len(pivot.index)), pivot.index)
         plt.title("Performance Metrics Heatmap")
         plt.tight_layout()
-        plt.show()
+        plt.savefig("results/performance_metrics_heatmap.png")

@@ -45,6 +45,19 @@ import warnings
 
 warnings.filterwarnings("ignore")
 
+# Fetch data
+darwin = fetch_ucirepo(id=732)
+
+# Outlier Resolution using IQR Method
+X = darwin.data.features.iloc[:, 1:]  # Use X directly, matching main.py
+for col in X.columns:
+    Q1 = X[col].quantile(0.25)
+    Q3 = X[col].quantile(0.75)
+    IQR = Q3 - Q1
+    lower_bound = Q1 - 1.5 * IQR
+    upper_bound = Q3 + 1.5 * IQR
+    X[col] = X[col].clip(lower=lower_bound, upper=upper_bound)
+
 # Import custom classes
 from utils import (
     feature_selection_comparison,
@@ -54,9 +67,6 @@ from utils import (
 
 ## Compare feature selections
 # Fetch and prepare data
-darwin = fetch_ucirepo(id=732)
-
-X = darwin.data.features.iloc[:, 1:]
 y = darwin.data.targets.iloc[:, 0]
 y = LabelEncoder().fit_transform(y) if y.dtype == "object" else y
 
@@ -128,7 +138,7 @@ sns.heatmap(
 )
 plt.title("Best Feature Selection Methods by Model and Metric")
 plt.tight_layout()
-plt.show()
+plt.savefig("results/best_methods_heatmap.png")
 
 # Save results
 results.to_csv("feature_selection_comparison_results.csv", index=False)
@@ -205,7 +215,7 @@ plt.xlabel("Method")
 plt.ylabel("Mean Score (across all metrics and models)")
 plt.xticks(rotation=45, ha="right")
 plt.tight_layout()
-plt.show()
+plt.savefig("results/overall_performance_barplot.png")
 
 # Show ranking for each metric
 print("\nRankings by Different Metrics:")
@@ -321,6 +331,16 @@ for fs_name, fs_method in feature_selection_methods.items():
         print(f"{clf_name} Accuracy: {accuracy:.4f}")
         print("\nClassification Report:")
         print(classification_report(y_test, y_pred))
+
+# Setup logging
+import logging
+logging.basicConfig(filename='model_selection.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# Log ModelSelectorClassifier accuracy
+for fs_name, clf_results in results.items():
+    if "ModelSelector" in clf_results:
+        accuracy = clf_results["ModelSelector"]
+        logging.info(f"ModelSelectorClassifier Accuracy ({fs_name}): {accuracy:.4f}")
 
 # Create comparison DataFrame
 comparison_df = pd.DataFrame(results)
