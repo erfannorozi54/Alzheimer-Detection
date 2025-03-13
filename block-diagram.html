@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>ML Pipeline Flow Chart</title>
+    <!-- Import Mermaid from CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+        }
+        .mermaid {
+            margin: 20px auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>Machine Learning Pipeline Flow Diagram</h1>
+    
+    <!-- Mermaid diagram definition -->
+    <div class="mermaid">
+    flowchart TD
+        A[Raw Data] --> B[1. Label Encoding on Targets]
+        B --> C[2. Train Test Split]
+        C --> |Training Data| D[3. Standard Scaling]
+        C --> |Test Data| E[Hold for Evaluation]
+        
+        D --> F[4. Feature Selection Methods]
+        
+        subgraph FeatureSelection[4. Feature Selection Methods]
+            F1[Statistical Tests] --> F1a[SI - Statistical Importance]
+            F1 --> F1b[ANOVA]
+            F1 --> F1c[MI - Mutual Information]
+            F1 --> F1d[Chi2]
+            
+            F2[Model-Based] --> F2a[RF - Random Forest Importance]
+            F2 --> F2b[RFE - Recursive Feature Elimination]
+            F2 --> F2c[L1 - Lasso Regularization]
+            
+            F3[Dimensionality Reduction] --> F3a[PCA]
+            F3 --> F3b[SparsePCA]
+            
+            F4[Advanced Methods] --> F4a[Boruta]
+            F4 --> F4b[ReliefF]
+            F4 --> F4c[Ensemble Feature Selection]
+        end
+        
+        F --> G[5. Model Training & Testing]
+        
+        subgraph Models[5. Model Training & Testing]
+            G1[RF - Random Forest]
+            G2[LR - Logistic Regression]
+            G3[SVM - Support Vector Machine]
+            G4[MCF - Model Selector Classifier]
+        end
+        
+        E --> G
+        G --> H[6. Result Comparison]
+        H --> I[Select Best Feature Selection Method]
+        I --> J[Final Model with Optimal Features]
+    </div>
+
+    <script>
+        // Initialize Mermaid
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'default',
+            flowchart: {
+                useMaxWidth: false,
+                htmlLabels: true
+            }
+        });
+    </script>
+</body>
+</html>
