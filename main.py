@@ -72,7 +72,7 @@ y = LabelEncoder().fit_transform(y) if y.dtype == "object" else y
 
 # Initialize comparison
 comparison = feature_selection_comparison.FeatureSelectionComparison(
-    X, y, n_features=15
+    X, y, n_features=10
 )
 
 # Run comparison
@@ -256,11 +256,11 @@ feature_selection_methods = {
             LogisticRegression(random_state=42),
             SVC(kernel="linear", random_state=42),
         ],
-        top_k=15,
+        top_k=10,
     ),
-    "RandomForest": lambda: fs.random_forest_selection(top_k=15),
+    "RandomForest": lambda: fs.random_forest_selection(top_k=10),
     "Boruta": lambda: fs.boruta_selection(
-        n_estimators=100, max_iter=100, top_k=15
+        n_estimators=100, max_iter=100, top_k=10
     ),
 }
 

@@ -1,8 +1,5 @@
 from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import (
-    StratifiedKFold,
-    cross_val_score
-)
+from sklearn.model_selection import StratifiedKFold, cross_val_score
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.svm import SVC
@@ -177,6 +174,18 @@ class FeatureSelectionComparison:
         # Define selection methods
         selection_methods = {
             "SI": lambda: selector.separation_index_selection(
+                top_k=self.n_features
+            ),
+            "weighted_SI": lambda: selector.weighted_separation_index(
+                top_k=self.n_features
+            ),
+            "multi_resolution_SI": lambda: selector.multi_resolution_separation(
+                top_k=self.n_features
+            ),
+            "feature_subset_SI": lambda: selector.feature_subset_separation(
+                top_k=self.n_features
+            ),
+            "adversarial_SI": lambda: selector.adversarial_separation(
                 top_k=self.n_features
             ),
             "ANOVA": lambda: selector.anova_selection(top_k=self.n_features),

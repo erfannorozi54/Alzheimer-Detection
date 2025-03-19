@@ -9,8 +9,7 @@ from sklearn.svm import SVC
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.naive_bayes import GaussianNB
 from xgboost import XGBClassifier
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import accuracy_score
+from sklearn.metrics import accuracy_score, f1_score, roc_auc_score, log_loss
 from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.preprocessing import StandardScaler
 from sklearn.utils.validation import check_X_y, check_array, check_is_fitted
@@ -19,10 +18,11 @@ warnings.filterwarnings('ignore')
 
 class ModelSelectorClassifier(BaseEstimator, ClassifierMixin):
     """
-    A completely redesigned classifier that uses a simpler and more effective approach:
-    1. Uses a Random Forest as the meta-learner instead of a neural network
-    2. Uses the probabilities from base classifiers as meta-features
-    3. Implements proper cross-validation without information leakage
+    An improved model selector classifier that:
+    1. Uses multiple metrics for determining the best model
+    2. Employs a better meta-learning approach
+    3. Incorporates model confidence as features
+    4. Uses a more robust cross-validation strategy
     """
     
     def __init__(
@@ -31,13 +31,13 @@ class ModelSelectorClassifier(BaseEstimator, ClassifierMixin):
         random_state: int = 42,
         meta_learner='rf',  # 'rf' or 'lr'
         verbose: bool = True,
-        use_proba: bool = True
+        metric: str = 'f1'  # 'accuracy', 'f1', 'auc', 'log_loss'
     ):
         self.n_folds = n_folds
         self.random_state = random_state
         self.meta_learner = meta_learner
         self.verbose = verbose
-        self.use_proba = use_proba
+        self.metric = metric
         
     def _initialize_classifiers(self):
         """Initialize base classifiers with proper parameters."""
@@ -73,9 +73,45 @@ class ModelSelectorClassifier(BaseEstimator, ClassifierMixin):
         else:
             raise ValueError(f"Unknown meta_learner: {self.meta_learner}")
 
+    def _calculate_confidence_features(self, probas):
+        """Calculate confidence metrics for a probability array."""
+        # Sort probabilities in descending order
+        sorted_probas = np.sort(probas, axis=1)[:, ::-1]
+        
+        # Margin: difference between highest and second highest probability
+        margin = sorted_probas[:, 0] - sorted_probas[:, 1]
+        
+        # Entropy: measure of uncertainty (-sum(p*log(p)))
+        # Add small epsilon to avoid log(0)
+        epsilon = 1e-10
+        entropy = -np.sum(probas * np.log2(probas + epsilon), axis=1)
+        
+        # Confidence: highest probability
+        confidence = sorted_probas[:, 0]
+        
+        return np.column_stack([margin, entropy, confidence])
+
+    def _evaluate_classifier(self, y_true, y_pred, y_proba=None):
+        """Evaluate a classifier using the specified metric."""
+        if self.metric == 'accuracy':
+            return accuracy_score(y_true, y_pred)
+        elif self.metric == 'f1':
+            return f1_score(y_true, y_pred, average='weighted')
+        elif self.metric == 'auc':
+            if y_proba is None:
+                raise ValueError("Probability estimates required for AUC calculation")
+            # For multi-class, use One-vs-Rest AUC
+            return roc_auc_score(y_true, y_proba, multi_class='ovr')
+        elif self.metric == 'log_loss':
+            if y_proba is None:
+                raise ValueError("Probability estimates required for log loss calculation")
+            return -log_loss(y_true, y_proba)  # Negative so higher is better
+        else:
+            raise ValueError(f"Unknown metric: {self.metric}")
+
     def fit(self, X, y):
         """
-        Fit the classifier using a stack-based approach.
+        Fit the classifier using an improved meta-learning approach.
         """
         # Input validation
         X, y = check_X_y(X, y)
@@ -96,179 +132,242 @@ class ModelSelectorClassifier(BaseEstimator, ClassifierMixin):
         
         # Initialize storage for meta-learner training data
         n_samples = X.shape[0]
-
-        if self.use_proba:
-            # For probability-based stacking: store probabilities for each class
-            n_meta_features = len(self.classifier_names_) * n_classes
-            X_meta_train = np.zeros((n_samples, n_meta_features))
-        else:
-            # For prediction-based stacking: store just the predictions
-            n_meta_features = len(self.classifier_names_)
-            X_meta_train = np.zeros((n_samples, n_meta_features))
-
+        
+        # Each base classifier contributes:
+        # - Class probabilities
+        # - Confidence metrics (margin, entropy, confidence)
+        n_meta_features = len(self.classifier_names_) * (n_classes + 3)
+        X_meta_train = np.zeros((n_samples, n_meta_features))
+        
+        # Store arrays for computing regional performance
+        region_performance = []
+        
         # For tracking individual model performance
-        base_accuracies = {name: 0.0 for name in self.classifier_names_}
-        fold_accuracies = []
-
-        # Store all base classifier predictions and true labels for each fold
-        all_val_preds = []
+        base_performances = {name: 0.0 for name in self.classifier_names_}
+        fold_performances = []
+        
+        # Store all predictions and probabilities
+        all_val_preds = {}
+        all_val_probas = {}
+        all_val_regions = {}
+        for name in self.classifier_names_:
+            all_val_preds[name] = []
+            all_val_probas[name] = []
         all_val_labels = []
-
+        
         # For each fold in cross-validation
         for fold_idx, (train_idx, val_idx) in enumerate(cv.split(X_scaled, y)):
             if self.verbose:
                 print(f"\nFold {fold_idx+1}/{self.n_folds}")
                 print("-" * 40)
-
+            
             X_train_fold = X_scaled[train_idx]
             y_train_fold = y[train_idx]
             X_val_fold = X_scaled[val_idx]
             y_val_fold = y[val_idx]
-
-            # Store predictions for this fold
-            fold_preds = {}
-
+            
             # Train each base classifier and collect meta-features
             for i, name in enumerate(self.classifier_names_):
                 # Get the classifier
                 clf = self.base_classifiers_[name]
-
+                
                 # Train on the fold's training data
                 clf.fit(X_train_fold, y_train_fold)
-
+                
                 # Make predictions on validation data
                 y_val_pred = clf.predict(X_val_fold)
-                fold_preds[name] = y_val_pred
-
-                # Calculate accuracy for this fold
-                acc = accuracy_score(y_val_fold, y_val_pred)
-                base_accuracies[name] += acc / self.n_folds
-
+                y_val_proba = clf.predict_proba(X_val_fold)
+                
+                # Store predictions and probabilities
+                all_val_preds[name].append(y_val_pred)
+                all_val_probas[name].append(y_val_proba)
+                
+                # Calculate performance for this fold
+                performance = self._evaluate_classifier(y_val_fold, y_val_pred, y_val_proba)
+                base_performances[name] += performance / self.n_folds
+                
                 if self.verbose:
-                    print(f"{name} Accuracy: {acc:.4f}")
-
-                if self.use_proba:
-                    # Get prediction probabilities
-                    proba = clf.predict_proba(X_val_fold)
-
-                    # Store probabilities as meta-features
-                    for j in range(n_classes):
-                        col_idx = i * n_classes + j
-                        X_meta_train[val_idx, col_idx] = proba[:, j]
-                else:
-                    # Store predictions as meta-features (one-hot encoded)
-                    X_meta_train[val_idx, i] = y_val_pred
-
-            # Calculate average accuracy for this fold
-            fold_accuracies.append(np.mean([base_accuracies[name] for name in self.classifier_names_]))
-            all_val_preds.append(fold_preds)
+                    print(f"{name} {self.metric}: {performance:.4f}")
+                
+                # Calculate starting index for this classifier's meta-features
+                start_idx = i * (n_classes + 3)
+                
+                # Store probabilities as meta-features
+                X_meta_train[val_idx, start_idx:start_idx+n_classes] = y_val_proba
+                
+                # Calculate and store confidence features
+                confidence_features = self._calculate_confidence_features(y_val_proba)
+                X_meta_train[val_idx, start_idx+n_classes:start_idx+n_classes+3] = confidence_features
+            
+            # Store validation labels
             all_val_labels.append(y_val_fold)
-
-        # --- Model Selection Accuracy Calculation ---
-        all_val_preds_combined = {}
+            
+            # Define "regions" in the feature space (for regional performance analysis)
+            # Here we use a simple clustering approach based on validation fold
+            all_val_regions[fold_idx] = val_idx
+            
+            # Calculate fold performance
+            fold_performances.append(np.mean([base_performances[name] for name in self.classifier_names_]))
+        
+        # Concatenate all validation predictions and labels
         for name in self.classifier_names_:
-            all_val_preds_combined[name] = np.concatenate([fold_preds[name] for fold_preds in all_val_preds])
-        all_val_labels_combined = np.concatenate(all_val_labels)
-
-        # Determine the actually best model for each sample
+            all_val_preds[name] = np.concatenate(all_val_preds[name])
+            all_val_probas[name] = np.vstack(all_val_probas[name])
+        all_val_labels = np.concatenate(all_val_labels)
+        
+        # Determine the actually best model for each sample using a more robust approach
+        # Instead of binary 0/1 accuracy, we'll use prediction confidence when correct,
+        # and negative confidence when incorrect
         actual_best_models = []
+        best_model_scores = []
+        
         for i in range(n_samples):
-            sample_accuracies = {}
+            true_label = all_val_labels[i]
+            model_scores = {}
+            
             for name in self.classifier_names_:
-                sample_accuracies[name] = accuracy_score(all_val_labels_combined[i:i+1], [all_val_preds_combined[name][i]])
-            best_model = max(sample_accuracies, key=sample_accuracies.get)
+                pred = all_val_preds[name][i]
+                proba = all_val_probas[name][i]
+                confidence = proba[np.where(self.classes_ == pred)[0][0]]
+                
+                # If prediction is correct, score is positive confidence
+                # If prediction is wrong, score is negative confidence
+                if pred == true_label:
+                    score = confidence
+                else:
+                    score = -confidence
+                
+                model_scores[name] = score
+            
+            # The best model has the highest score
+            best_model = max(model_scores, key=model_scores.get)
+            best_score = model_scores[best_model]
+            
             actual_best_models.append(best_model)
-
-        # Determine predicted best model for each sample
-        if self.use_proba:
-            predicted_best_model_indices = np.argmax(X_meta_train, axis=1) // n_classes
-        else:
-            predicted_best_model_indices = np.argmax(X_meta_train, axis=1)
-        predicted_best_models = [self.classifier_names_[i] for i in predicted_best_model_indices]
-
+            best_model_scores.append(best_score)
+        
+        # Now, we define the target for our meta-learner:
+        # Instead of trying to predict the best model directly,
+        # we'll predict the performance score for each model and select the highest
+        y_meta = np.zeros((n_samples, len(self.classifier_names_)))
+        
+        for i, name in enumerate(self.classifier_names_):
+            for j in range(n_samples):
+                true_label = all_val_labels[j]
+                pred = all_val_preds[name][j]
+                proba = all_val_probas[name][j]
+                confidence = proba[np.where(self.classes_ == pred)[0][0]]
+                
+                # Same scoring as above
+                if pred == true_label:
+                    score = confidence
+                else:
+                    score = -confidence
+                
+                y_meta[j, i] = score
+        
+        # Now, let's create regression-based meta-learners instead of classifiers
+        # This avoids issues with binary classification when a model is never the best
+        self.meta_regressors_ = {}
+        for i, name in enumerate(self.classifier_names_):
+            if self.meta_learner == 'rf':
+                from sklearn.ensemble import RandomForestRegressor
+                regressor = RandomForestRegressor(
+                    n_estimators=100,
+                    max_depth=10,
+                    random_state=self.random_state
+                )
+            else:
+                from sklearn.linear_model import Ridge
+                regressor = Ridge(
+                    alpha=1.0,
+                    random_state=self.random_state
+                )
+            
+            # Get performance scores for this model
+            y_scores = np.zeros(n_samples)
+            for j in range(n_samples):
+                true_label = all_val_labels[j]
+                pred = all_val_preds[name][j]
+                proba = all_val_probas[name][j]
+                confidence = proba[np.where(self.classes_ == pred)[0][0]]
+                
+                # Same scoring as above - positive when correct, negative when wrong
+                if pred == true_label:
+                    score = confidence
+                else:
+                    score = -confidence
+                
+                y_scores[j] = score
+            
+            # Train a regressor to predict the performance score
+            regressor.fit(X_meta_train, y_scores)
+            self.meta_regressors_[name] = regressor
+        
         # Calculate model selection accuracy
+        predicted_best_models = []
+        for i in range(n_samples):
+            model_scores = {}
+            for name in self.classifier_names_:
+                # Get predicted performance score
+                score = self.meta_regressors_[name].predict(X_meta_train[i:i+1])[0]
+                model_scores[name] = score
+            
+            best_model = max(model_scores, key=model_scores.get)
+            predicted_best_models.append(best_model)
+        
         model_selection_accuracy = accuracy_score(actual_best_models, predicted_best_models)
-        logging.info(f"Actual Best Models: {actual_best_models}")
-        logging.info(f"Predicted Best Models: {predicted_best_models}")
+        logging.info(f"Actual Best Models: {actual_best_models[:20]}...")  # Log first 20 examples
+        logging.info(f"Predicted Best Models: {predicted_best_models[:20]}...")
         logging.info(f"Model Selection Accuracy: {model_selection_accuracy:.4f}")
-
+        
         # Print overall model performance
         if self.verbose:
             print("\n=== Base Classifier Performance ===")
             print("-" * 40)
             for name in self.classifier_names_:
-                print(f"{name:<15} | {base_accuracies[name]:.4f}")
+                print(f"{name:<15} | {base_performances[name]:.4f}")
             print("-" * 40)
-            print(f"Average Accuracy: {np.mean(list(base_accuracies.values())):.4f}")
-
-        # Create and train the meta-learner
-        self.meta_classifier_ = self._create_meta_learner()
-        self.meta_classifier_.fit(X_meta_train, y)
-
-        if self.verbose:
-            # Evaluate meta-learner on training data
-            meta_pred = self.meta_classifier_.predict(X_meta_train)
-            meta_acc = accuracy_score(y, meta_pred)
-            print(f"\nMeta-learner accuracy on training data: {meta_acc:.4f}")
-
-            # Find the best base classifier for comparison
-            best_clf = max(base_accuracies.items(), key=lambda x: x[1])
-            print(f"Best individual classifier ({best_clf[0]}): {best_clf[1]:.4f}")
-
-            # Visualize feature importances if meta-learner is Random Forest
-            if self.meta_learner == 'rf':
-                importances = self.meta_classifier_.feature_importances_
-                indices = np.argsort(importances)[::-1]
-
-                print("\nTop 10 most important meta-features:")
-                for i in range(min(10, len(importances))):
-                    idx = indices[i]
-                    if self.use_proba:
-                        clf_idx = idx // n_classes
-                        class_idx = idx % n_classes
-                        feature_name = f"{self.classifier_names_[clf_idx]} (Class {self.classes_[class_idx]})"
-                    else:
-                        feature_name = self.classifier_names_[idx]
-                    print(f"{feature_name:<20} | {importances[idx]:.4f}")
-
+            print(f"Average {self.metric}: {np.mean(list(base_performances.values())):.4f}")
+            print(f"\nModel Selection Accuracy: {model_selection_accuracy:.4f}")
+        
         # Train the base classifiers on the full dataset for final predictions
         for name in self.classifier_names_:
             clf = self.base_classifiers_[name]
             clf.fit(X_scaled, y)
-
+        
         # Store dimensions for validation
         self.n_features_in_ = X.shape[1]
         self.n_meta_features_ = n_meta_features
         self.n_classes_ = n_classes
-
+        
         return self
     
     def _create_meta_features(self, X_scaled):
         """Create meta-features for prediction time."""
-        if self.use_proba:
-            # For probability-based meta-features
-            meta_features = np.zeros((X_scaled.shape[0], self.n_meta_features_))
+        meta_features = np.zeros((X_scaled.shape[0], self.n_meta_features_))
+        
+        for i, name in enumerate(self.classifier_names_):
+            # Get the classifier
+            clf = self.base_classifiers_[name]
             
-            for i, name in enumerate(self.classifier_names_):
-                clf = self.base_classifiers_[name]
-                proba = clf.predict_proba(X_scaled)
-                
-                # Store probabilities as meta-features
-                for j in range(self.n_classes_):
-                    col_idx = i * self.n_classes_ + j
-                    meta_features[:, col_idx] = proba[:, j]
-        else:
-            # For prediction-based meta-features
-            meta_features = np.zeros((X_scaled.shape[0], len(self.classifier_names_)))
+            # Make predictions
+            proba = clf.predict_proba(X_scaled)
             
-            for i, name in enumerate(self.classifier_names_):
-                clf = self.base_classifiers_[name]
-                meta_features[:, i] = clf.predict(X_scaled)
+            # Calculate starting index for this classifier's meta-features
+            start_idx = i * (self.n_classes_ + 3)
+            
+            # Store probabilities as meta-features
+            meta_features[:, start_idx:start_idx+self.n_classes_] = proba
+            
+            # Calculate and store confidence features
+            confidence_features = self._calculate_confidence_features(proba)
+            meta_features[:, start_idx+self.n_classes_:start_idx+self.n_classes_+3] = confidence_features
         
         return meta_features
-
+    
     def predict(self, X):
-        """Predict using the stacked classifier."""
+        """Predict using the meta-model approach."""
         # Check if fit has been called
         check_is_fitted(self)
         
@@ -277,7 +376,7 @@ class ModelSelectorClassifier(BaseEstimator, ClassifierMixin):
         
         # Validate dimensions
         if X.shape[1] != self.n_features_in_:
-            raise ValueError(f"X has {X.shape[1]} features, but ModelSelectorClassifier "
+            raise ValueError(f"X has {X.shape[1]} features, but ImprovedModelSelectorClassifier "
                            f"was trained with {self.n_features_in_} features.")
         
         # Scale features
@@ -286,8 +385,27 @@ class ModelSelectorClassifier(BaseEstimator, ClassifierMixin):
         # Create meta-features
         X_meta = self._create_meta_features(X_scaled)
         
-        # Make final predictions using the meta-learner
-        return self.meta_classifier_.predict(X_meta)
+        # For each instance, predict using the model with highest predicted performance
+        predictions = np.zeros(X.shape[0], dtype=int)
+        
+        for i in range(X.shape[0]):
+            model_scores = {}
+            model_preds = {}
+            
+            # Get the predicted performance score for each model
+            for name in self.classifier_names_:
+                score = self.meta_regressors_[name].predict(X_meta[i:i+1])[0]
+                model_scores[name] = score
+                
+                # Also get each model's prediction
+                clf = self.base_classifiers_[name]
+                model_preds[name] = clf.predict(X_scaled[i:i+1])[0]
+            
+            # Use the model with highest predicted performance score
+            best_model = max(model_scores, key=model_scores.get)
+            predictions[i] = model_preds[best_model]
+        
+        return predictions
     
     def predict_proba(self, X):
         """Predict class probabilities."""
@@ -303,8 +421,28 @@ class ModelSelectorClassifier(BaseEstimator, ClassifierMixin):
         # Create meta-features
         X_meta = self._create_meta_features(X_scaled)
         
-        # Make probability predictions using the meta-learner
-        return self.meta_classifier_.predict_proba(X_meta)
+        # Initialize probability matrix
+        proba = np.zeros((X.shape[0], len(self.classes_)))
+        
+        # For each instance, get probabilities from the best model
+        for i in range(X.shape[0]):
+            model_scores = {}
+            model_class_probs = {}
+            
+            # Get predicted performance score for each model
+            for name in self.classifier_names_:
+                score = self.meta_regressors_[name].predict(X_meta[i:i+1])[0]
+                model_scores[name] = score
+                
+                # Get class probabilities from each base model
+                clf = self.base_classifiers_[name]
+                model_class_probs[name] = clf.predict_proba(X_scaled[i:i+1])[0]
+            
+            # Use the model with highest predicted performance score
+            best_model = max(model_scores, key=model_scores.get)
+            proba[i] = model_class_probs[best_model]
+        
+        return proba
     
     def get_params(self, deep=True):
         """Get parameters for this estimator."""
@@ -313,7 +451,7 @@ class ModelSelectorClassifier(BaseEstimator, ClassifierMixin):
             "random_state": self.random_state,
             "meta_learner": self.meta_learner,
             "verbose": self.verbose,
-            "use_proba": self.use_proba
+            "metric": self.metric
         }
     
     def set_params(self, **parameters):
@@ -323,5 +461,7 @@ class ModelSelectorClassifier(BaseEstimator, ClassifierMixin):
         return self
     
     def score(self, X, y):
-        """Returns the mean accuracy on the given test data and labels."""
-        return accuracy_score(y, self.predict(X))
+        """Returns the performance on the given test data and labels."""
+        y_pred = self.predict(X)
+        y_proba = self.predict_proba(X)
+        return self._evaluate_classifier(y, y_pred, y_proba)
