@@ -4,4 +4,4 @@
 __pycache__/*
 ./utils/__pycache__
 results
-results/*.png
+./results/*.png

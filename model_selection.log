@@ -1,0 +1,52 @@
+2025-03-19 05:40:32,662 - INFO - Actual Best Models: ['KNN', 'DT', 'XGB', 'DT', 'DT', 'DT', 'DT', 'DT', 'DT', 'DT', 'DT', 'DT', 'DT', 'DT', 'DT', 'DT', 'DT', 'DT', 'DT', 'XGB']...
+2025-03-19 05:40:32,662 - INFO - Predicted Best Models: ['NB', 'DT', 'XGB', 'GB', 'DT', 'NB', 'NB', 'DT', 'XGB', 'DT', 'GB', 'XGB', 'NB', 'GB', 'GB', 'NB', 'GB', 'XGB', 'NB', 'XGB']...
+2025-03-19 05:40:32,662 - INFO - Model Selection Accuracy: 0.3022
+2025-03-19 05:40:43,121 - INFO - Actual Best Models: ['DT', 'RF', 'RF', 'RF', 'DT', 'RF', 'DT', 'DT', 'DT', 'DT', 'DT', 'RF', 'DT', 'DT', 'DT', 'DT', 'DT', 'DT', 'DT', 'DT']...
+2025-03-19 05:40:43,122 - INFO - Predicted Best Models: ['SVM', 'DT', 'RF', 'KNN', 'NB', 'NB', 'NB', 'NB', 'NB', 'DT', 'NB', 'NB', 'DT', 'DT', 'GB', 'GB', 'NB', 'NB', 'GB', 'GB']...
+2025-03-19 05:40:43,122 - INFO - Model Selection Accuracy: 0.2446
+2025-03-19 05:41:08,484 - INFO - Actual Best Models: ['DT', 'DT', 'DT', 'LR', 'DT', 'NB', 'DT', 'KNN', 'DT', 'DT', 'DT', 'NB', 'KNN', 'DT', 'DT', 'DT', 'DT', 'NB', 'NB', 'DT']...
+2025-03-19 05:41:08,484 - INFO - Predicted Best Models: ['XGB', 'GB', 'DT', 'NB', 'GB', 'XGB', 'DT', 'NB', 'GB', 'GB', 'NB', 'GB', 'GB', 'GB', 'NB', 'GB', 'RF', 'NB', 'NB', 'XGB']...
+2025-03-19 05:41:08,484 - INFO - Model Selection Accuracy: 0.3237
+2025-03-19 05:41:11,525 - INFO - ModelSelectorClassifier Accuracy (Ensemble): 0.8286
+2025-03-19 05:41:11,525 - INFO - ModelSelectorClassifier Accuracy (RandomForest): 0.8857
+2025-03-19 05:41:11,526 - INFO - ModelSelectorClassifier Accuracy (Boruta): 0.7143
+2025-03-19 16:49:47,888 - INFO - Model Selection Accuracy (on samples with at least one correct model): 0.3088
+2025-03-19 16:50:08,134 - INFO - Model Selection Accuracy (on samples with at least one correct model): 0.1765
+2025-03-19 16:50:45,583 - INFO - Model Selection Accuracy (on samples with at least one correct model): 0.2857
+2025-03-19 16:50:49,359 - INFO - ModelSelectorClassifier Accuracy (Ensemble): 0.8571
+2025-03-19 16:50:49,360 - INFO - ModelSelectorClassifier Accuracy (RandomForest): 0.8571
+2025-03-19 16:50:49,360 - INFO - ModelSelectorClassifier Accuracy (Boruta): 0.8000
+2025-03-19 16:57:35,646 - INFO - Model Selection Accuracy (on samples with at least one correct model): 0.3088
+2025-03-19 16:57:56,976 - INFO - Model Selection Accuracy (on samples with at least one correct model): 0.1765
+2025-03-19 16:58:36,202 - INFO - Model Selection Accuracy (on samples with at least one correct model): 0.2857
+2025-03-19 16:58:42,511 - INFO - ModelSelectorClassifier Accuracy (Ensemble): 0.8571
+2025-03-19 16:58:42,511 - INFO - ModelSelectorClassifier Accuracy (RandomForest): 0.8571
+2025-03-19 16:58:42,511 - INFO - ModelSelectorClassifier Accuracy (Boruta): 0.8000
+2025-03-19 17:03:38,469 - INFO - Model Selection Accuracy (on samples with at least one correct model): 0.2647
+2025-03-19 17:04:04,400 - INFO - Model Selection Accuracy (on samples with at least one correct model): 0.2132
+2025-03-19 17:04:44,956 - INFO - Model Selection Accuracy (on samples with at least one correct model): 0.2707
+2025-03-19 17:04:49,091 - INFO - ModelSelectorClassifier Accuracy (Ensemble): 0.8571
+2025-03-19 17:04:49,091 - INFO - ModelSelectorClassifier Accuracy (RandomForest): 0.9143
+2025-03-19 17:04:49,091 - INFO - ModelSelectorClassifier Accuracy (Boruta): 0.7714
+2025-03-19 17:12:03,034 - INFO - Model Selection Accuracy (on samples with at least one correct model): 0.2374
+2025-03-19 17:12:33,287 - INFO - Model Selection Accuracy (on samples with at least one correct model): 0.2518
+2025-03-19 17:13:25,520 - INFO - Model Selection Accuracy (on samples with at least one correct model): 0.2348
+2025-03-19 17:13:34,450 - INFO - ModelSelectorClassifier Accuracy (Ensemble): 0.8857
+2025-03-19 17:13:34,451 - INFO - ModelSelectorClassifier Accuracy (RandomForest): 0.8571
+2025-03-19 17:13:34,451 - INFO - ModelSelectorClassifier Accuracy (Boruta): 0.7714
+2025-03-19 22:19:19,970 - INFO - Model Selection Accuracy (on samples with at least one correct model): 0.1884
+2025-03-19 22:19:26,735 - INFO - ModelSelectorClassifier Accuracy (Ensemble): 0.8857
+2025-03-19 22:19:40,938 - INFO - Model Selection Accuracy (on samples with at least one correct model): 0.1533
+2025-03-19 22:19:47,787 - INFO - ModelSelectorClassifier Accuracy (RandomForest): 0.8857
+2025-03-19 22:20:20,210 - INFO - Model Selection Accuracy (on samples with at least one correct model): 0.2344
+2025-03-19 22:20:26,753 - INFO - ModelSelectorClassifier Accuracy (Boruta): 0.7714
+2025-03-19 22:20:41,495 - INFO - Model Selection Accuracy (on samples with at least one correct model): 0.1185
+2025-03-19 22:20:48,613 - INFO - ModelSelectorClassifier Accuracy (SI): 0.8571
+2025-03-19 22:27:23,234 - INFO - Model Selection Accuracy (on samples with at least one correct model): 0.1739
+2025-03-19 22:27:28,219 - INFO - ModelSelectorClassifier Accuracy (Ensemble): 0.8857
+2025-03-19 22:27:35,413 - INFO - Model Selection Accuracy (on samples with at least one correct model): 0.1460
+2025-03-19 22:27:40,236 - INFO - ModelSelectorClassifier Accuracy (RandomForest): 0.8857
+2025-03-19 22:28:02,930 - INFO - Model Selection Accuracy (on samples with at least one correct model): 0.1953
+2025-03-19 22:28:09,334 - INFO - ModelSelectorClassifier Accuracy (Boruta): 0.7429
+2025-03-19 22:28:18,379 - INFO - Model Selection Accuracy (on samples with at least one correct model): 0.1630
+2025-03-19 22:28:25,222 - INFO - ModelSelectorClassifier Accuracy (SI): 0.8286

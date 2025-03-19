@@ -1,55 +1,46 @@
 from ucimlrepo import fetch_ucirepo
 from sklearn.decomposition import PCA, SparsePCA
 from sklearn.preprocessing import StandardScaler, LabelEncoder, MinMaxScaler
-from sklearn.model_selection import (
-    train_test_split,
-    train_test_split,
-)
+from sklearn.model_selection import train_test_split
 from sklearn.naive_bayes import GaussianNB
-from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier, AdaBoostClassifier
 from sklearn.linear_model import LogisticRegression, RidgeClassifier
 from sklearn.svm import SVC, LinearSVC
 from sklearn.neighbors import KNeighborsClassifier, NearestNeighbors
 from sklearn.tree import DecisionTreeClassifier
 from xgboost import XGBClassifier
-from sklearn.metrics import (
-    accuracy_score,
-    classification_report,
-    accuracy_score,
-)
+from sklearn.metrics import accuracy_score, classification_report
+from sklearn.pipeline import Pipeline
+from sklearn.neural_network import MLPClassifier
+from lightgbm import LGBMClassifier
 import numpy as np
 import os
-from sklearn.pipeline import Pipeline
-
-import utils.feature_selection_comparison
-
-
-os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-
-from ucimlrepo import fetch_ucirepo
-from sklearn.preprocessing import LabelEncoder, StandardScaler
-from sklearn.model_selection import train_test_split
-from sklearn.ensemble import (
-    RandomForestClassifier,
-    GradientBoostingClassifier,
-    AdaBoostClassifier,
-)
-from sklearn.svm import SVC
-from sklearn.linear_model import LogisticRegression
-from sklearn.neural_network import MLPClassifier
-from lightgbm import LGBMClassifier
 import warnings
+import logging
 
+# Import custom modules
+from utils import feature_selection_comparison, feature_selector, model_selector_classifier
+
+# Setup environment and logging
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 warnings.filterwarnings("ignore")
+logging.basicConfig(filename='model_selection.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Fetch data
+# =====================================================================================
+# STEP 1: Load and preprocess the dataset ONCE at the beginning
+# =====================================================================================
+print("Loading and preprocessing data...")
 darwin = fetch_ucirepo(id=732)
 
-# Outlier Resolution using IQR Method
+# Extract features and targets
 X = darwin.data.features.iloc[:, 1:]  # Use X directly, matching main.py
+y = darwin.data.targets.iloc[:, 0]
+y = LabelEncoder().fit_transform(y) if y.dtype == "object" else y
+
+# Outlier Resolution using IQR Method
 for col in X.columns:
     Q1 = X[col].quantile(0.25)
     Q3 = X[col].quantile(0.75)
@@ -58,22 +49,15 @@ for col in X.columns:
     upper_bound = Q3 + 1.5 * IQR
     X[col] = X[col].clip(lower=lower_bound, upper=upper_bound)
 
-# Import custom classes
-from utils import (
-    feature_selection_comparison,
-    feature_selector,
-    model_selector_classifier,
-)
+print(f"Dataset loaded: {X.shape[0]} samples with {X.shape[1]} features")
 
-## Compare feature selections
-# Fetch and prepare data
-y = darwin.data.targets.iloc[:, 0]
-y = LabelEncoder().fit_transform(y) if y.dtype == "object" else y
+# =====================================================================================
+# STEP 2: Compare feature selection methods
+# =====================================================================================
+print("\nComparing feature selection methods...")
 
 # Initialize comparison
-comparison = feature_selection_comparison.FeatureSelectionComparison(
-    X, y, n_features=10
-)
+comparison = feature_selection_comparison.FeatureSelectionComparison(X, y, n_features=10)
 
 # Run comparison
 results = comparison.run_comparison()
@@ -101,15 +85,13 @@ for model in best_methods["Model"].unique():
     model_results = best_methods[best_methods["Model"] == model]
 
     # Create a formatted table for each model
-    table = pd.DataFrame(
-        {
-            "Metric": model_results["Metric"],
-            "Best Method": model_results["Best_Method"],
-            "Score": model_results["Score"].round(4),
-            "Improvement %": model_results["Improvement_%"].round(2),
-            "Time (s)": model_results["Selection_Time"].round(3),
-        }
-    )
+    table = pd.DataFrame({
+        "Metric": model_results["Metric"],
+        "Best Method": model_results["Best_Method"],
+        "Score": model_results["Score"].round(4),
+        "Improvement %": model_results["Improvement_%"].round(2),
+        "Time (s)": model_results["Selection_Time"].round(3),
+    })
     print(table.to_string(index=False))
 
 # Perform statistical analysis
@@ -159,19 +141,13 @@ for model in best_methods["Model"].unique():
     print(f"Best Method (by accuracy): {best_accuracy_method}")
     print(f"Selected Features: {best_features}")
 
-
 print("\nAnalysis complete! Results have been saved to CSV files.")
 
 print("\n6. Overall Feature Selection Methods Performance:")
 print("-" * 60)
 
 # Define the metrics to include
-metrics_to_analyze = [
-    "test_accuracy",
-    "test_precision",
-    "test_recall",
-    "test_f1",
-]
+metrics_to_analyze = ["test_accuracy", "test_precision", "test_recall", "test_f1"]
 
 # Create a summary dataframe for each method
 method_summaries = []
@@ -225,25 +201,17 @@ for column in metrics_to_analyze + ["Overall_Mean"]:
     ranking_df[f"{column}_rank"] = ranking_df[column].rank(ascending=False)
 
 ranking_summary = ranking_df[
-    ["Method"]
-    + [f"{col}_rank" for col in metrics_to_analyze + ["Overall_Mean"]]
+    ["Method"] + [f"{col}_rank" for col in metrics_to_analyze + ["Overall_Mean"]]
 ]
 print(ranking_summary.round(2).to_string(index=False))
 
-## Compare models classification models using 3 different feature selection model
+# =====================================================================================
+# STEP 3: Compare classification models using 3 different feature selection methods
+# =====================================================================================
+print("\n\nComparing classification models with different feature selection methods...")
 
-# Load and prepare the data
-print("Loading data...")
-darwin = fetch_ucirepo(id=732)
-
-X = darwin.data.features.iloc[:, 1:]
-y = darwin.data.targets.iloc[:, 0]
-y = LabelEncoder().fit_transform(y) if y.dtype == "object" else y
-
-# Split the data
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, random_state=42
-)
+# Split the data - using the SAME preprocessed data from Step 1
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
 # Initialize the feature selector with training data
 fs = feature_selector.FeatureSelector(X_train, y_train)
@@ -256,12 +224,11 @@ feature_selection_methods = {
             LogisticRegression(random_state=42),
             SVC(kernel="linear", random_state=42),
         ],
-        top_k=10,
+        top_k=20,
     ),
-    "RandomForest": lambda: fs.random_forest_selection(top_k=10),
-    "Boruta": lambda: fs.boruta_selection(
-        n_estimators=100, max_iter=100, top_k=10
-    ),
+    "RandomForest": lambda: fs.random_forest_selection(top_k=20),
+    "Boruta": lambda: fs.boruta_selection(n_estimators=100, max_iter=100, top_k=20),
+    "SI": lambda: fs.separation_index_selection(top_k=20)
 }
 
 # Define classifiers
@@ -269,10 +236,8 @@ classifiers = {
     "RandomForest": RandomForestClassifier(n_estimators=100, random_state=42),
     "SVM": SVC(kernel="rbf", random_state=42),
     "LogisticRegression": LogisticRegression(max_iter=1000, random_state=42),
-    "ModelSelector": model_selector_classifier.ModelSelectorClassifier(n_folds=12, random_state=42),
-    "GradientBoosting": GradientBoostingClassifier(
-        n_estimators=100, random_state=42
-    ),
+    "ModelSelector": model_selector_classifier.ModelSelectorClassifier(n_folds=3, n_clusters=10,meta_learner='ls' , random_state=42),
+    "GradientBoosting": GradientBoostingClassifier(n_estimators=100, random_state=42),
     "XGBoost": XGBClassifier(n_estimators=100, random_state=42),
     "LightGBM": LGBMClassifier(n_estimators=100, random_state=42),
     "AdaBoost": AdaBoostClassifier(n_estimators=100, random_state=42),
@@ -280,9 +245,7 @@ classifiers = {
     "NaiveBayes": GaussianNB(),
     "DecisionTree": DecisionTreeClassifier(random_state=42),
     "Ridge": RidgeClassifier(random_state=42),
-    "NeuralNetwork": MLPClassifier(
-        hidden_layer_sizes=(100, 50), max_iter=1000, random_state=42
-    ),
+    "NeuralNetwork": MLPClassifier(hidden_layer_sizes=(100, 50), max_iter=1000, random_state=42),
 }
 
 # Dictionary to store results
@@ -310,9 +273,7 @@ for fs_name, fs_method in feature_selection_methods.items():
         print(f"\nTraining {clf_name}...")
 
         # Create and fit pipeline
-        pipeline = Pipeline(
-            [("scaler", StandardScaler()), ("classifier", clf)]
-        )
+        pipeline = Pipeline([("scaler", StandardScaler()), ("classifier", clf)])
 
         # Fit the pipeline
         pipeline.fit(X_train_selected, y_train)
@@ -332,15 +293,9 @@ for fs_name, fs_method in feature_selection_methods.items():
         print("\nClassification Report:")
         print(classification_report(y_test, y_pred))
 
-# Setup logging
-import logging
-logging.basicConfig(filename='model_selection.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-
-# Log ModelSelectorClassifier accuracy
-for fs_name, clf_results in results.items():
-    if "ModelSelector" in clf_results:
-        accuracy = clf_results["ModelSelector"]
-        logging.info(f"ModelSelectorClassifier Accuracy ({fs_name}): {accuracy:.4f}")
+        # Log ModelSelectorClassifier accuracy
+        if clf_name == "ModelSelector":
+            logging.info(f"ModelSelectorClassifier Accuracy ({fs_name}): {accuracy:.4f}")
 
 # Create comparison DataFrame
 comparison_df = pd.DataFrame(results)
@@ -368,7 +323,5 @@ for fs_name in results:
             best_accuracy = accuracy
             best_combination = (fs_name, clf_name)
 
-print(
-    f"\nBest combination: {best_combination[0]} feature selection with {best_combination[1]}"
-)
+print(f"\nBest combination: {best_combination[0]} feature selection with {best_combination[1]}")
 print(f"Best accuracy: {best_accuracy:.4f}")
