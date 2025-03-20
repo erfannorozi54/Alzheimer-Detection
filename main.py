@@ -228,7 +228,8 @@ feature_selection_methods = {
     ),
     "RandomForest": lambda: fs.random_forest_selection(top_k=20),
     "Boruta": lambda: fs.boruta_selection(n_estimators=100, max_iter=100, top_k=20),
-    "SI": lambda: fs.separation_index_selection(top_k=20)
+    "SI": lambda: fs.separation_index_selection(top_k=20),
+    "weighted_SI": lambda: fs.weighted_separation_index(top_k=20),
 }
 
 # Define classifiers
@@ -236,7 +237,7 @@ classifiers = {
     "RandomForest": RandomForestClassifier(n_estimators=100, random_state=42),
     "SVM": SVC(kernel="rbf", random_state=42),
     "LogisticRegression": LogisticRegression(max_iter=1000, random_state=42),
-    "ModelSelector": model_selector_classifier.ModelSelectorClassifier(n_folds=3, n_clusters=10,meta_learner='ls' , random_state=42),
+    "ModelSelector": model_selector_classifier.ModelSelectorClassifier(n_folds=5,cv_repeats= 8, meta_learner="lr", n_clusters=6, random_state=42),
     "GradientBoosting": GradientBoostingClassifier(n_estimators=100, random_state=42),
     "XGBoost": XGBClassifier(n_estimators=100, random_state=42),
     "LightGBM": LGBMClassifier(n_estimators=100, random_state=42),
