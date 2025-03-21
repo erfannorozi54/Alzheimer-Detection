@@ -45,8 +45,8 @@ for col in X.columns:
     Q1 = X[col].quantile(0.25)
     Q3 = X[col].quantile(0.75)
     IQR = Q3 - Q1
-    lower_bound = Q1 - 1.5 * IQR
-    upper_bound = Q3 + 1.5 * IQR
+    lower_bound = Q1 - 3 * IQR
+    upper_bound = Q3 + 3 * IQR
     X[col] = X[col].clip(lower=lower_bound, upper=upper_bound)
 
 print(f"Dataset loaded: {X.shape[0]} samples with {X.shape[1]} features")
@@ -224,12 +224,13 @@ feature_selection_methods = {
             LogisticRegression(random_state=42),
             SVC(kernel="linear", random_state=42),
         ],
-        top_k=20,
+        top_k=15,
     ),
-    "RandomForest": lambda: fs.random_forest_selection(top_k=20),
-    "Boruta": lambda: fs.boruta_selection(n_estimators=100, max_iter=100, top_k=20),
-    "SI": lambda: fs.separation_index_selection(top_k=20),
-    "weighted_SI": lambda: fs.weighted_separation_index(top_k=20),
+    "RandomForest": lambda: fs.random_forest_selection(top_k=15),
+    "Boruta": lambda: fs.boruta_selection(n_estimators=100, max_iter=100, top_k=15),
+    "SI": lambda: fs.separation_index_selection(top_k=15),
+    "weighted_SI": lambda: fs.weighted_separation_index(top_k=15),
+    "multi_resolution_SI": lambda: fs.multi_resolution_separation(top_k=15),
 }
 
 # Define classifiers
@@ -237,9 +238,9 @@ classifiers = {
     "RandomForest": RandomForestClassifier(n_estimators=100, random_state=42),
     "SVM": SVC(kernel="rbf", random_state=42),
     "LogisticRegression": LogisticRegression(max_iter=1000, random_state=42),
-    "ModelSelector": model_selector_classifier.ModelSelectorClassifier(n_folds=5,cv_repeats= 8, meta_learner="lr", n_clusters=6, random_state=42),
+    "ModelSelector": model_selector_classifier.ModelSelectorClassifier(n_folds=10, cv_repeats= 4, n_clusters=8, meta_learner="xgb", random_state=42),
     "GradientBoosting": GradientBoostingClassifier(n_estimators=100, random_state=42),
-    "XGBoost": XGBClassifier(n_estimators=100, random_state=42),
+    "XGBoost": XGBClassifier(n_estimators=500, random_state=42),
     "LightGBM": LGBMClassifier(n_estimators=100, random_state=42),
     "AdaBoost": AdaBoostClassifier(n_estimators=100, random_state=42),
     "KNN": KNeighborsClassifier(n_neighbors=5),

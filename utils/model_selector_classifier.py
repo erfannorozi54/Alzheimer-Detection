@@ -8,21 +8,60 @@ from sklearn.tree import DecisionTreeClassifier
 from sklearn.svm import SVC
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.naive_bayes import GaussianNB
-from xgboost import XGBClassifier
-from sklearn.metrics import accuracy_score, f1_score, roc_auc_score, log_loss
-from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.preprocessing import StandardScaler
 from sklearn.utils.validation import check_X_y, check_array, check_is_fitted
 from sklearn.cluster import KMeans
+from sklearn.metrics import accuracy_score, f1_score, roc_auc_score, log_loss
+from sklearn.base import BaseEstimator, ClassifierMixin
 import warnings
 warnings.filterwarnings('ignore')
 
+# Import advanced meta-learners
+try:
+    import tensorflow as tf
+    from tensorflow.keras.models import Sequential
+    from tensorflow.keras.layers import Dense, Dropout, BatchNormalization
+    from tensorflow.keras.optimizers import Adam
+    from tensorflow.keras.callbacks import EarlyStopping
+    from tensorflow.keras.regularizers import l2
+    TENSORFLOW_AVAILABLE = True
+except ImportError:
+    TENSORFLOW_AVAILABLE = False
+    warnings.warn("TensorFlow not available. Neural Network meta-learner will not be available.")
+
+try:
+    from xgboost import XGBClassifier, XGBRegressor
+    XGBOOST_AVAILABLE = True
+except ImportError:
+    XGBOOST_AVAILABLE = False
+    warnings.warn("XGBoost not available. XGBoost meta-learner will not be available.")
+
+try:
+    from lightgbm import LGBMClassifier, LGBMRegressor
+    LIGHTGBM_AVAILABLE = True
+except ImportError:
+    LIGHTGBM_AVAILABLE = False
+    warnings.warn("LightGBM not available. LightGBM meta-learner will not be available.")
+
+try:
+    from catboost import CatBoostClassifier, CatBoostRegressor
+    CATBOOST_AVAILABLE = True
+except ImportError:
+    CATBOOST_AVAILABLE = False
+    warnings.warn("CatBoost not available. CatBoost meta-learner will not be available.")
+
+
 class ModelSelectorClassifier(BaseEstimator, ClassifierMixin):
     """
-    An enhanced model selector with improved meta-learning capabilities:
-    1. Uses more robust meta-features
-    2. Implements repeated cross-validation for more meta-training data
-    3. Enables synthetic data generation to increase training samples
+    An enhanced model selector with multiple advanced meta-learners:
+    1. Random Forest (default)
+    2. Linear models (Ridge/LogisticRegression)
+    3. Neural Networks (TensorFlow)
+    4. XGBoost
+    5. LightGBM
+    6. CatBoost
+    
+    Each meta-learner can be used for both correctness classification and performance prediction.
     """
     
     def __init__(
@@ -30,14 +69,24 @@ class ModelSelectorClassifier(BaseEstimator, ClassifierMixin):
         n_folds: int = 5,
         cv_repeats: int = 5,  # Number of times to repeat cross-validation
         random_state: int = 42,
-        meta_learner='rf',  # 'rf' or 'lr'
+        meta_learner='rf',  # 'rf', 'lr', 'nn', 'xgb', 'lgbm', 'catboost'
         verbose: bool = True,
         metric: str = 'accuracy',  # 'accuracy', 'f1', 'auc', 'log_loss'
         n_clusters: int = 5,  # Number of feature space clusters
-        use_correctness_classifier: bool = True,  # Use two-stage approach
+        use_correctness_classifier: bool = False,  # Use two-stage approach
         confidence_threshold: float = 0.6,  # Threshold for considering a model "confident"
         use_synthetic_data: bool = False,  # Whether to use synthetic data
-        synthetic_multiplier: float = 0.5  # Proportion of synthetic data to generate
+        synthetic_multiplier: float = 0.5,  # Proportion of synthetic data to generate
+        nn_hidden_layers: list = [16, 16],  # Neural net architecture
+        nn_dropout_rate: float = 0.2,  # Dropout rate for neural networks
+        nn_learning_rate: float = 0.001,  # Learning rate for neural networks
+        nn_epochs: int = 10,  # Max epochs for neural network training
+        nn_early_stopping: bool = True,  # Use early stopping for neural networks
+        nn_batch_size: int = 32,  # Batch size for neural networks
+        xgb_n_estimators: int = 600,  # Number of trees for XGBoost
+        xgb_learning_rate: float = 0.01,  # Learning rate for XGBoost
+        lgbm_n_estimators: int = 200,  # Number of trees for LightGBM
+        catboost_n_estimators: int = 200  # Number of trees for CatBoost
     ):
         self.n_folds = n_folds
         self.cv_repeats = cv_repeats
@@ -50,6 +99,34 @@ class ModelSelectorClassifier(BaseEstimator, ClassifierMixin):
         self.confidence_threshold = confidence_threshold
         self.use_synthetic_data = use_synthetic_data
         self.synthetic_multiplier = synthetic_multiplier
+        
+        # Neural network parameters
+        self.nn_hidden_layers = nn_hidden_layers
+        self.nn_dropout_rate = nn_dropout_rate
+        self.nn_learning_rate = nn_learning_rate
+        self.nn_epochs = nn_epochs
+        self.nn_early_stopping = nn_early_stopping
+        self.nn_batch_size = nn_batch_size
+        
+        # Gradient boosting parameters
+        self.xgb_n_estimators = xgb_n_estimators
+        self.xgb_learning_rate = xgb_learning_rate
+        self.lgbm_n_estimators = lgbm_n_estimators
+        self.catboost_n_estimators = catboost_n_estimators
+        
+        # Validate meta-learner choice
+        self._validate_meta_learner()
+        
+    def _validate_meta_learner(self):
+        """Validate that the selected meta-learner is available."""
+        if self.meta_learner == 'nn' and not TENSORFLOW_AVAILABLE:
+            raise ImportError("TensorFlow is not available. Please install tensorflow or choose a different meta-learner.")
+        elif self.meta_learner == 'xgb' and not XGBOOST_AVAILABLE:
+            raise ImportError("XGBoost is not available. Please install xgboost or choose a different meta-learner.")
+        elif self.meta_learner == 'lgbm' and not LIGHTGBM_AVAILABLE:
+            raise ImportError("LightGBM is not available. Please install lightgbm or choose a different meta-learner.")
+        elif self.meta_learner == 'catboost' and not CATBOOST_AVAILABLE:
+            raise ImportError("CatBoost is not available. Please install catboost or choose a different meta-learner.")
         
     def _initialize_classifiers(self):
         """Initialize base classifiers with proper parameters."""
@@ -66,10 +143,59 @@ class ModelSelectorClassifier(BaseEstimator, ClassifierMixin):
         # Store classifier names in a list to ensure consistent ordering
         self.classifier_names_ = list(self.base_classifiers_.keys())
     
-    def _create_meta_learner(self, regression=True):
-        """Create a meta-learner based on the specified type."""
+    def _create_neural_network(self, input_dim, regression=True):
+        """Create a neural network model using TensorFlow."""
+        # Set random seed for reproducibility
+        tf.random.set_seed(self.random_state)
+        
+        # Create sequential model
+        model = Sequential()
+        
+        # Add input layer with appropriate regularization
+        model.add(Dense(
+            self.nn_hidden_layers[0], 
+            input_dim=input_dim,
+            activation='relu',
+            kernel_regularizer=l2(0.001),
+            kernel_initializer=tf.keras.initializers.HeNormal(seed=self.random_state)
+        ))
+        model.add(BatchNormalization())
+        model.add(Dropout(self.nn_dropout_rate))
+        
+        # Add hidden layers
+        for units in self.nn_hidden_layers[1:]:
+            model.add(Dense(
+                units, 
+                activation='relu',
+                kernel_regularizer=l2(0.001),
+                kernel_initializer=tf.keras.initializers.HeNormal(seed=self.random_state)
+            ))
+            model.add(BatchNormalization())
+            model.add(Dropout(self.nn_dropout_rate))
+        
+        # Add output layer
         if regression:
-            if self.meta_learner == 'rf':
+            # Regression: predict a single continuous value
+            model.add(Dense(1, activation='linear'))
+            loss = 'mse'
+            metrics = ['mae']
+        else:
+            # Classification: predict probability of class 1
+            model.add(Dense(2, activation='softmax'))
+            loss = 'sparse_categorical_crossentropy'
+            metrics = ['accuracy']
+            
+        # Compile the model
+        optimizer = Adam(learning_rate=self.nn_learning_rate)
+        model.compile(optimizer=optimizer, loss=loss, metrics=metrics)
+            
+        return model
+        
+    def _create_meta_learner(self, input_dim=None, regression=True):
+        """Create a meta-learner based on the specified type."""
+        if self.meta_learner == 'rf':
+            # Random Forest
+            if regression:
                 return RandomForestRegressor(
                     n_estimators=500,
                     max_depth=15,
@@ -77,16 +203,17 @@ class ModelSelectorClassifier(BaseEstimator, ClassifierMixin):
                     random_state=self.random_state
                 )
             else:
-                return Ridge(
-                    alpha=1.0,
-                    random_state=self.random_state
-                )
-        else:
-            if self.meta_learner == 'rf':
                 return RandomForestClassifier(
                     n_estimators=500,
                     max_depth=15,
                     min_samples_leaf=3,
+                    random_state=self.random_state
+                )
+        elif self.meta_learner == 'lr':
+            # Linear Models
+            if regression:
+                return Ridge(
+                    alpha=1.0,
                     random_state=self.random_state
                 )
             else:
@@ -96,6 +223,134 @@ class ModelSelectorClassifier(BaseEstimator, ClassifierMixin):
                     solver='saga',
                     random_state=self.random_state
                 )
+        elif self.meta_learner == 'nn':
+            # Neural Network
+            if not TENSORFLOW_AVAILABLE:
+                raise ImportError("TensorFlow is not available.")
+            
+            if input_dim is None:
+                raise ValueError("input_dim must be provided for neural network meta-learners.")
+                
+            return self._create_neural_network(input_dim, regression=regression)
+            
+        elif self.meta_learner == 'xgb':
+            # XGBoost
+            if not XGBOOST_AVAILABLE:
+                raise ImportError("XGBoost is not available.")
+                
+            if regression:
+                return XGBRegressor(
+                    n_estimators=self.xgb_n_estimators,
+                    learning_rate=self.xgb_learning_rate,
+                    random_state=self.random_state
+                )
+            else:
+                return XGBClassifier(
+                    n_estimators=self.xgb_n_estimators,
+                    learning_rate=self.xgb_learning_rate,
+                    random_state=self.random_state
+                )
+        elif self.meta_learner == 'lgbm':
+            # LightGBM
+            if not LIGHTGBM_AVAILABLE:
+                raise ImportError("LightGBM is not available.")
+                
+            if regression:
+                return LGBMRegressor(
+                    n_estimators=self.lgbm_n_estimators,
+                    random_state=self.random_state
+                )
+            else:
+                return LGBMClassifier(
+                    n_estimators=self.lgbm_n_estimators,
+                    random_state=self.random_state
+                )
+        elif self.meta_learner == 'catboost':
+            # CatBoost
+            if not CATBOOST_AVAILABLE:
+                raise ImportError("CatBoost is not available.")
+                
+            if regression:
+                return CatBoostRegressor(
+                    n_estimators=self.catboost_n_estimators,
+                    random_state=self.random_state,
+                    verbose=False
+                )
+            else:
+                return CatBoostClassifier(
+                    n_estimators=self.catboost_n_estimators,
+                    random_state=self.random_state,
+                    verbose=False
+                )
+        else:
+            raise ValueError(f"Unknown meta_learner: {self.meta_learner}")
+
+    def _fit_meta_learner(self, meta_learner, X, y, is_regression=True):
+        """
+        Fit a meta-learner model with appropriate handling for different model types.
+        This function handles the differences between sklearn-style and TensorFlow models.
+        """
+        if self.meta_learner == 'nn':
+            # Special handling for neural networks
+            callbacks = []
+            if self.nn_early_stopping:
+                early_stopping = EarlyStopping(
+                    monitor='val_loss',
+                    patience=10,
+                    restore_best_weights=True
+                )
+                callbacks.append(early_stopping)
+            
+            # For classification, ensure y is the correct shape
+            if not is_regression:
+                # Neural net expects class indices for sparse categorical crossentropy
+                y = y.astype(int)
+            
+            # Split data for validation
+            val_size = min(0.2, 1.0 / self.n_folds)  # Use at least one fold for validation
+            indices = np.arange(X.shape[0])
+            np.random.shuffle(indices)
+            split_idx = int(X.shape[0] * (1 - val_size))
+            train_indices = indices[:split_idx]
+            val_indices = indices[split_idx:]
+            
+            X_train, X_val = X[train_indices], X[val_indices]
+            y_train, y_val = y[train_indices], y[val_indices]
+            
+            # Fit the neural network
+            history = meta_learner.fit(
+                X_train, y_train,
+                epochs=self.nn_epochs,
+                batch_size=self.nn_batch_size,
+                validation_data=(X_val, y_val),
+                callbacks=callbacks,
+                verbose=0  # Suppress output
+            )
+            
+            # Return the fitted model
+            return meta_learner
+        else:
+            # Standard scikit-learn API
+            return meta_learner.fit(X, y)
+
+    def _predict_meta_learner(self, meta_learner, X, is_regression=True):
+        """
+        Make predictions with a meta-learner model with appropriate handling for different model types.
+        """
+        if self.meta_learner == 'nn':
+            if is_regression:
+                # Regression predictions
+                return meta_learner.predict(X).flatten()
+            else:
+                # Classification probability predictions
+                probs = meta_learner.predict(X)
+                return probs[:, 1]  # Return probability of class 1
+        else:
+            # Standard scikit-learn API
+            if is_regression:
+                return meta_learner.predict(X)
+            else:
+                return meta_learner.predict_proba(X)[:, 1]  # Probability of class 1
 
     def _calculate_confidence_features(self, probas):
         """Calculate confidence metrics for a probability array."""
@@ -340,34 +595,54 @@ class ModelSelectorClassifier(BaseEstimator, ClassifierMixin):
             
             for name in self.classifier_names_:
                 # Create binary classifier to predict if this model will be correct
-                correctness_clf = self._create_meta_learner(regression=False)
+                correctness_clf = self._create_meta_learner(
+                    input_dim=X_meta_all.shape[1], 
+                    regression=False
+                )
                 
                 # Train the classifier on all meta-features
-                correctness_clf.fit(X_meta_all, all_meta_correctness[name])
+                self._fit_meta_learner(
+                    correctness_clf, 
+                    X_meta_all, 
+                    all_meta_correctness[name],
+                    is_regression=False
+                )
                 
                 self.correctness_classifiers_[name] = correctness_clf
                 
                 if self.verbose:
-                    # Evaluate classifier on training data
-                    train_acc = correctness_clf.score(X_meta_all, all_meta_correctness[name])
-                    print(f"Correctness classifier for {name}: {train_acc:.4f} accuracy")
+                    # For neural networks, we can't easily get the training accuracy
+                    if self.meta_learner != 'nn':
+                        # Evaluate classifier on training data
+                        train_acc = correctness_clf.score(X_meta_all, all_meta_correctness[name])
+                        print(f"Correctness classifier for {name}: {train_acc:.4f} accuracy")
         
         # Create performance predictors (predict how well a model will perform)
         self.performance_predictors_ = {}
         
         for name in self.classifier_names_:
             # Create a regressor to predict this model's performance
-            performance_predictor = self._create_meta_learner(regression=True)
+            performance_predictor = self._create_meta_learner(
+                input_dim=X_meta_correct.shape[1], 
+                regression=True
+            )
             
             # Train the regressor only on samples with at least one correct model
-            performance_predictor.fit(X_meta_correct, perf_scores_filtered[name])
+            self._fit_meta_learner(
+                performance_predictor, 
+                X_meta_correct, 
+                perf_scores_filtered[name],
+                is_regression=True
+            )
             
             self.performance_predictors_[name] = performance_predictor
             
             if self.verbose:
-                # Evaluate regressor on training data
-                train_r2 = performance_predictor.score(X_meta_correct, perf_scores_filtered[name])
-                print(f"Performance predictor for {name}: {train_r2:.4f} R²")
+                # For neural networks, we can't easily get the R-squared
+                if self.meta_learner != 'nn':
+                    # Evaluate regressor on training data
+                    train_r2 = performance_predictor.score(X_meta_correct, perf_scores_filtered[name])
+                    print(f"Performance predictor for {name}: {train_r2:.4f} R²")
         
         # Calculate model selection accuracy on meta-learning data
         predicted_best_models = []
@@ -394,7 +669,11 @@ class ModelSelectorClassifier(BaseEstimator, ClassifierMixin):
             if self.use_correctness_classifier:
                 for name in self.classifier_names_:
                     # Predict if this model will be correct
-                    correctness_prob = self.correctness_classifiers_[name].predict_proba(X_meta_correct[i:i+1])[0][1]
+                    correctness_prob = self._predict_meta_learner(
+                        self.correctness_classifiers_[name],
+                        X_meta_correct[i:i+1],
+                        is_regression=False
+                    )
                     if correctness_prob >= self.confidence_threshold:
                         pred_correct_models.append(name)
             
@@ -406,7 +685,11 @@ class ModelSelectorClassifier(BaseEstimator, ClassifierMixin):
             # Step 2: Among potentially correct models, choose one with highest predicted performance
             model_perfs = {}
             for name in pred_correct_models:
-                perf = self.performance_predictors_[name].predict(X_meta_correct[i:i+1])[0]
+                perf = self._predict_meta_learner(
+                    self.performance_predictors_[name],
+                    X_meta_correct[i:i+1],
+                    is_regression=True
+                )[0]
                 model_perfs[name] = perf
             
             best_model = max(model_perfs, key=model_perfs.get) if model_perfs else self.classifier_names_[0]
@@ -416,9 +699,9 @@ class ModelSelectorClassifier(BaseEstimator, ClassifierMixin):
         model_selection_accuracy = np.mean(np.array(predicted_best_models) == np.array(actual_best_models))
         
         if self.verbose:
-            print(f"\nModel Selection Accuracy: {model_selection_accuracy:.4f}")
+            print(f"\nModel Selection Accuracy with {self.meta_learner} meta-learner: {model_selection_accuracy:.4f}")
             
-        logging.info(f"Model Selection Accuracy: {model_selection_accuracy:.4f}")
+        logging.info(f"Model Selection Accuracy with {self.meta_learner} meta-learner: {model_selection_accuracy:.4f}")
         
         # Train the base classifiers on the full dataset for final predictions
         for name in self.classifier_names_:
@@ -478,7 +761,7 @@ class ModelSelectorClassifier(BaseEstimator, ClassifierMixin):
         
         # Validate dimensions
         if X.shape[1] != self.n_features_in_:
-            raise ValueError(f"X has {X.shape[1]} features, but EnhancedModelSelectorClassifier "
+            raise ValueError(f"X has {X.shape[1]} features, but AdvancedModelSelectorClassifier "
                            f"was trained with {self.n_features_in_} features.")
         
         # Scale features
@@ -496,7 +779,11 @@ class ModelSelectorClassifier(BaseEstimator, ClassifierMixin):
             if self.use_correctness_classifier:
                 for name in self.classifier_names_:
                     # Predict if this model will be correct
-                    correctness_prob = self.correctness_classifiers_[name].predict_proba(X_meta[i:i+1])[0][1]
+                    correctness_prob = self._predict_meta_learner(
+                        self.correctness_classifiers_[name],
+                        X_meta[i:i+1],
+                        is_regression=False
+                    )
                     if correctness_prob >= self.confidence_threshold:
                         correct_models.append(name)
             
@@ -511,7 +798,11 @@ class ModelSelectorClassifier(BaseEstimator, ClassifierMixin):
             
             for name in correct_models:
                 # Get predicted performance
-                perf = self.performance_predictors_[name].predict(X_meta[i:i+1])[0]
+                perf = self._predict_meta_learner(
+                    self.performance_predictors_[name],
+                    X_meta[i:i+1],
+                    is_regression=True
+                )[0]
                 model_perfs[name] = perf
                 
                 # Get the model's prediction
@@ -548,7 +839,11 @@ class ModelSelectorClassifier(BaseEstimator, ClassifierMixin):
             if self.use_correctness_classifier:
                 for name in self.classifier_names_:
                     # Predict if this model will be correct
-                    correctness_prob = self.correctness_classifiers_[name].predict_proba(X_meta[i:i+1])[0][1]
+                    correctness_prob = self._predict_meta_learner(
+                        self.correctness_classifiers_[name],
+                        X_meta[i:i+1],
+                        is_regression=False
+                    )
                     if correctness_prob >= self.confidence_threshold:
                         correct_models.append(name)
             
@@ -563,7 +858,11 @@ class ModelSelectorClassifier(BaseEstimator, ClassifierMixin):
             
             for name in correct_models:
                 # Get predicted performance
-                perf = self.performance_predictors_[name].predict(X_meta[i:i+1])[0]
+                perf = self._predict_meta_learner(
+                    self.performance_predictors_[name],
+                    X_meta[i:i+1],
+                    is_regression=True
+                )[0]
                 model_perfs[name] = perf
                 
                 # Get class probabilities from this model
@@ -589,13 +888,25 @@ class ModelSelectorClassifier(BaseEstimator, ClassifierMixin):
             "use_correctness_classifier": self.use_correctness_classifier,
             "confidence_threshold": self.confidence_threshold,
             "use_synthetic_data": self.use_synthetic_data,
-            "synthetic_multiplier": self.synthetic_multiplier
+            "synthetic_multiplier": self.synthetic_multiplier,
+            "nn_hidden_layers": self.nn_hidden_layers,
+            "nn_dropout_rate": self.nn_dropout_rate,
+            "nn_learning_rate": self.nn_learning_rate,
+            "nn_epochs": self.nn_epochs,
+            "nn_early_stopping": self.nn_early_stopping,
+            "nn_batch_size": self.nn_batch_size,
+            "xgb_n_estimators": self.xgb_n_estimators,
+            "xgb_learning_rate": self.xgb_learning_rate,
+            "lgbm_n_estimators": self.lgbm_n_estimators,
+            "catboost_n_estimators": self.catboost_n_estimators
         }
     
     def set_params(self, **parameters):
         """Set the parameters of this estimator."""
         for parameter, value in parameters.items():
             setattr(self, parameter, value)
+        # Re-validate meta-learner choice in case it was changed
+        self._validate_meta_learner()
         return self
     
     def score(self, X, y):
