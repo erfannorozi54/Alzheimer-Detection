@@ -73,7 +73,7 @@ class ModelSelectorClassifier(BaseEstimator, ClassifierMixin):
         verbose: bool = True,
         metric: str = 'accuracy',  # 'accuracy', 'f1', 'auc', 'log_loss'
         n_clusters: int = 5,  # Number of feature space clusters
-        use_correctness_classifier: bool = False,  # Use two-stage approach
+        use_correctness_classifier: bool = True,  # Use two-stage approach
         confidence_threshold: float = 0.6,  # Threshold for considering a model "confident"
         use_synthetic_data: bool = False,  # Whether to use synthetic data
         synthetic_multiplier: float = 0.5,  # Proportion of synthetic data to generate

@@ -41,13 +41,13 @@ y = darwin.data.targets.iloc[:, 0]
 y = LabelEncoder().fit_transform(y) if y.dtype == "object" else y
 
 # Outlier Resolution using IQR Method
-for col in X.columns:
-    Q1 = X[col].quantile(0.25)
-    Q3 = X[col].quantile(0.75)
-    IQR = Q3 - Q1
-    lower_bound = Q1 - 3 * IQR
-    upper_bound = Q3 + 3 * IQR
-    X[col] = X[col].clip(lower=lower_bound, upper=upper_bound)
+# for col in X.columns:
+#     Q1 = X[col].quantile(0.25)
+#     Q3 = X[col].quantile(0.75)
+#     IQR = Q3 - Q1
+#     lower_bound = Q1 - 3 * IQR
+#     upper_bound = Q3 + 3 * IQR
+#     X[col] = X[col].clip(lower=lower_bound, upper=upper_bound)
 
 print(f"Dataset loaded: {X.shape[0]} samples with {X.shape[1]} features")
 
@@ -235,10 +235,10 @@ feature_selection_methods = {
 
 # Define classifiers
 classifiers = {
-    "RandomForest": RandomForestClassifier(n_estimators=100, random_state=42),
+    "RandomForestfeature_selection_methods": RandomForestClassifier(n_estimators=100, random_state=42),
     "SVM": SVC(kernel="rbf", random_state=42),
     "LogisticRegression": LogisticRegression(max_iter=1000, random_state=42),
-    "ModelSelector": model_selector_classifier.ModelSelectorClassifier(n_folds=10, cv_repeats= 4, n_clusters=8, meta_learner="xgb", random_state=42),
+    "ModelSelector": model_selector_classifier.ModelSelectorClassifier(n_folds=12, cv_repeats= 5, n_clusters=3, meta_learner="xgb", random_state=42),
     "GradientBoosting": GradientBoostingClassifier(n_estimators=100, random_state=42),
     "XGBoost": XGBClassifier(n_estimators=500, random_state=42),
     "LightGBM": LGBMClassifier(n_estimators=100, random_state=42),
