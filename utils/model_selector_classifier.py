@@ -13,7 +13,11 @@ from sklearn.utils.validation import check_X_y, check_array, check_is_fitted
 from sklearn.cluster import KMeans
 from sklearn.metrics import accuracy_score, f1_score, roc_auc_score, log_loss
 from sklearn.base import BaseEstimator, ClassifierMixin
+from sklearn.model_selection import GridSearchCV  # Import GridSearchCV
 import warnings
+import copy
+import json  # Import json for caching
+import os    # Import os for file path operations
 warnings.filterwarnings('ignore')
 
 # Import advanced meta-learners
@@ -86,7 +90,9 @@ class ModelSelectorClassifier(BaseEstimator, ClassifierMixin):
         xgb_n_estimators: int = 600,  # Number of trees for XGBoost
         xgb_learning_rate: float = 0.01,  # Learning rate for XGBoost
         lgbm_n_estimators: int = 200,  # Number of trees for LightGBM
-        catboost_n_estimators: int = 200  # Number of trees for CatBoost
+        catboost_n_estimators: int = 200,  # Number of trees for CatBoost
+        do_gridsearch: bool = True,  # Whether to perform GridSearchCV on base models
+        grid_search_cache_path: str = 'model_selector_gs_cache.json' # Path to cache GS results
     ):
         self.n_folds = n_folds
         self.cv_repeats = cv_repeats
@@ -113,7 +119,49 @@ class ModelSelectorClassifier(BaseEstimator, ClassifierMixin):
         self.xgb_learning_rate = xgb_learning_rate
         self.lgbm_n_estimators = lgbm_n_estimators
         self.catboost_n_estimators = catboost_n_estimators
-        
+        self.do_gridsearch = do_gridsearch
+        self.grid_search_cache_path = grid_search_cache_path
+
+        # Define parameter grids for base model GridSearchCV
+        # Note: Ensure parameters match the base model definitions below
+        self.base_param_grids_ = {
+            "RF": {
+                'n_estimators': [50, 100],
+                'max_depth': [10, 20, None],
+                'min_samples_split': [2, 5]
+            },
+            "LR": { # Using solver='saga' which supports l1/l2
+                'C': [0.1, 1.0, 10.0],
+                'penalty': ['l1', 'l2']
+            },
+            "XGB": {
+                'n_estimators': [50, 100],
+                'learning_rate': [0.05, 0.1],
+                'max_depth': [3, 5]
+            },
+            "DT": {
+                'max_depth': [10, 20, None],
+                'min_samples_split': [2, 5, 10],
+                'criterion': ['gini', 'entropy']
+            },
+            "SVM": { # probability=True needed
+                'C': [0.1, 1, 10],
+                'gamma': ['scale', 'auto'],
+                # 'kernel': ['rbf'] # Keep kernel='rbf' as default
+            },
+            "KNN": {
+                'n_neighbors': [3, 5, 7],
+                'weights': ['uniform', 'distance']
+            },
+            "GB": {
+                'n_estimators': [50, 100],
+                'learning_rate': [0.05, 0.1],
+                'max_depth': [3, 4]
+            },
+            # NB typically doesn't need grid search
+            "NB": {}
+        }
+
         # Validate meta-learner choice
         self._validate_meta_learner()
         
@@ -127,22 +175,68 @@ class ModelSelectorClassifier(BaseEstimator, ClassifierMixin):
             raise ImportError("LightGBM is not available. Please install lightgbm or choose a different meta-learner.")
         elif self.meta_learner == 'catboost' and not CATBOOST_AVAILABLE:
             raise ImportError("CatBoost is not available. Please install catboost or choose a different meta-learner.")
-        
-    def _initialize_classifiers(self):
-        """Initialize base classifiers with proper parameters."""
-        self.base_classifiers_ = {
-            "RF": RandomForestClassifier(n_estimators=100, max_features='sqrt', random_state=self.random_state),
-            "LR": LogisticRegression(max_iter=5000, C=1.0, solver='saga', random_state=self.random_state), 
-            "XGB": XGBClassifier(n_estimators=100, random_state=self.random_state),
-            "DT": DecisionTreeClassifier(max_depth=10, min_samples_split=5, random_state=self.random_state),
-            "SVM": SVC(C=1.0, kernel='rbf', probability=True, random_state=self.random_state),
-            "KNN": KNeighborsClassifier(n_neighbors=5, weights='distance'),
+
+    def _initialize_classifiers(self, params_override=None):
+        """Initialize base classifiers with default or overridden parameters."""
+        if params_override is None:
+            params_override = {}
+
+        # Define default base classifiers and their parameters
+        # Ensure these match the keys in self.base_param_grids_
+        default_classifiers = {
+            "RF": RandomForestClassifier(random_state=self.random_state),
+            "LR": LogisticRegression(solver='saga', max_iter=5000, random_state=self.random_state), # Ensure solver supports penalties if used in grid
+            "XGB": XGBClassifier(random_state=self.random_state, use_label_encoder=False, eval_metric='logloss'), # Suppress warnings
+            "DT": DecisionTreeClassifier(random_state=self.random_state),
+            "SVM": SVC(probability=True, random_state=self.random_state), # Ensure probability=True
+            "KNN": KNeighborsClassifier(), # Default KNN
             "NB": GaussianNB(),
-            "GB": GradientBoostingClassifier(n_estimators=100, learning_rate=0.1, max_depth=4, random_state=self.random_state)
+            "GB": GradientBoostingClassifier(random_state=self.random_state)
         }
-        # Store classifier names in a list to ensure consistent ordering
-        self.classifier_names_ = list(self.base_classifiers_.keys())
-    
+
+        # Default parameters (can be overridden by grid search results)
+        default_params = {
+            "RF": {'n_estimators': 100, 'max_features': 'sqrt'},
+            "LR": {'C': 1.0}, # Default C
+            "XGB": {'n_estimators': 100}, # Default n_estimators
+            "DT": {'max_depth': 10, 'min_samples_split': 5},
+            "SVM": {'C': 1.0, 'kernel': 'rbf'}, # Default C and kernel
+            "KNN": {'n_neighbors': 5, 'weights': 'distance'},
+            "NB": {}, # No default params needed
+            "GB": {'n_estimators': 100, 'learning_rate': 0.1, 'max_depth': 4}
+        }
+
+        self.base_classifiers_ = {} # This will hold the classifier instances used in CV
+        self.classifier_names_ = list(default_classifiers.keys()) # Ensure consistent order
+
+        for name in self.classifier_names_:
+            # Start with default parameters for this classifier type
+            current_params = default_params.get(name, {}).copy()
+            # Update with override parameters if available for this classifier
+            if name in params_override:
+                # Make sure keys in override are valid params for the classifier
+                valid_override_keys = {k: v for k, v in params_override[name].items() if k in default_classifiers[name].get_params()}
+                current_params.update(valid_override_keys)
+
+            # Create classifier instance and set parameters
+            clf = default_classifiers[name] # Get the class
+            try:
+                # Create instance with updated parameters
+                clf_instance = clf.set_params(**current_params)
+                self.base_classifiers_[name] = clf_instance
+            except (ValueError, TypeError) as e:
+                print(f"Warning: Could not set parameters {current_params} for {name}. Using defaults. Error: {e}")
+                # Fallback to default instance if setting params fails
+                self.base_classifiers_[name] = default_classifiers[name]
+                # Re-apply only the valid default params
+                valid_default_params = {k: v for k, v in default_params.get(name, {}).items() if k in self.base_classifiers_[name].get_params()}
+                if valid_default_params:
+                    try:
+                        self.base_classifiers_[name].set_params(**valid_default_params)
+                    except (ValueError, TypeError) as e_default:
+                         print(f"Warning: Could not even set default parameters {valid_default_params} for {name}. Error: {e_default}")
+
+
     def _create_neural_network(self, input_dim, regression=True):
         """Create a neural network model using TensorFlow."""
         # Set random seed for reproducibility
@@ -435,9 +529,93 @@ class ModelSelectorClassifier(BaseEstimator, ClassifierMixin):
         
         # Initialize components
         self.scaler_ = StandardScaler()
-        self._initialize_classifiers()
-        
-        # Scale features
+
+        # --- Grid Search Logic for Base Models ---
+        base_model_params = {} # Store best params found or loaded
+        if self.do_gridsearch:
+            if self.verbose:
+                print("--- Base Model GridSearchCV Enabled ---")
+            # Try loading from cache
+            if os.path.exists(self.grid_search_cache_path):
+                try:
+                    with open(self.grid_search_cache_path, 'r') as f:
+                        base_model_params = json.load(f)
+                    if self.verbose:
+                        print(f"Loaded base model parameters from cache: {self.grid_search_cache_path}")
+                except (json.JSONDecodeError, IOError) as e:
+                    if self.verbose:
+                        print(f"Cache file found but failed to load ({e}). Running GridSearchCV.")
+                    base_model_params = {} # Reset if loading failed
+
+            # If cache miss or load failed, run GridSearchCV
+            if not base_model_params:
+                if self.verbose:
+                    print("Performing GridSearchCV for base models...")
+                # Need scaled data for grid search
+                temp_scaler = StandardScaler()
+                X_scaled_gs = temp_scaler.fit_transform(X) # Use original X for GS
+
+                # Initialize temporary classifiers just for grid search
+                temp_classifiers = {}
+                self._initialize_classifiers(params_override={}) # Initialize with defaults first
+                temp_classifiers_for_gs = self.base_classifiers_ # Get default instances
+
+                for name, clf in temp_classifiers_for_gs.items():
+                    if name in self.base_param_grids_ and self.base_param_grids_[name]:
+                        if self.verbose:
+                            print(f"  GridSearching for {name}...")
+                        grid = self.base_param_grids_[name]
+                        # Use a smaller CV for base model grid search to save time
+                        gs = GridSearchCV(clf, grid, cv=3, scoring='accuracy', n_jobs=-1, error_score='raise')
+                        try:
+                            gs.fit(X_scaled_gs, y) # Fit on scaled original data
+                            base_model_params[name] = gs.best_params_
+                            if self.verbose:
+                                print(f"    Best params for {name}: {gs.best_params_}")
+                        except Exception as e:
+                            print(f"    GridSearchCV failed for {name}: {e}. Using defaults.")
+                            # Keep default params if GS fails
+                            # First ensure defaults are initialized if not already
+                            if not hasattr(self, 'base_classifiers_') or not self.base_classifiers_:
+                                self._initialize_classifiers(params_override={})
+                            # Access the default instance from the attribute
+                            if name in self.base_classifiers_:
+                                base_model_params[name] = self.base_classifiers_[name].get_params()
+                            else: # Should not happen if initialized correctly
+                                print(f"    Error: Default classifier {name} not found for fallback.")
+                                base_model_params[name] = {} # Empty params as last resort
+                    else:
+                         # If no grid defined, use default params
+                         # First ensure defaults are initialized if not already
+                         if not hasattr(self, 'base_classifiers_') or not self.base_classifiers_:
+                             self._initialize_classifiers(params_override={})
+                         # Access the default instance from the attribute
+                         if name in self.base_classifiers_:
+                             base_model_params[name] = self.base_classifiers_[name].get_params()
+                         else: # Should not happen if initialized correctly
+                             print(f"    Error: Default classifier {name} not found for fallback.")
+                             base_model_params[name] = {} # Empty params as last resort
+
+
+                # Save results to cache
+                try:
+                    with open(self.grid_search_cache_path, 'w') as f:
+                        json.dump(base_model_params, f, indent=4)
+                    if self.verbose:
+                        print(f"Saved base model parameters to cache: {self.grid_search_cache_path}")
+                except IOError as e:
+                    if self.verbose:
+                        print(f"Failed to save cache file: {e}")
+        else:
+             if self.verbose:
+                print("--- Base Model GridSearchCV Disabled ---")
+        # --- End Grid Search Logic ---
+
+        # Initialize classifiers with potentially optimized parameters
+        self._initialize_classifiers(params_override=base_model_params)
+        self.optimized_base_params_ = base_model_params # Store the params used
+
+        # Scale features using the main scaler
         X_scaled = self.scaler_.fit_transform(X)
         
         # Generate synthetic data if enabled
@@ -472,6 +650,10 @@ class ModelSelectorClassifier(BaseEstimator, ClassifierMixin):
         # Total number of meta-features
         n_meta_features = base_meta_features + extra_features
         
+        # Store the initialized (potentially optimized) base classifiers for use in CV
+        # These instances have the parameters set (either default or from GS)
+        cv_base_classifiers = self.base_classifiers_
+
         # Repeat cross-validation multiple times to generate more meta-learning data
         for repeat in range(self.cv_repeats):
             if self.verbose:
@@ -505,11 +687,28 @@ class ModelSelectorClassifier(BaseEstimator, ClassifierMixin):
                 
                 # Train each base classifier and collect meta-features
                 for i, name in enumerate(self.classifier_names_):
-                    # Get the classifier
-                    clf = self.base_classifiers_[name]
-                    
+                    # Create a fresh copy of the potentially optimized classifier for this fold
+                    clf = copy.deepcopy(cv_base_classifiers[name])
+
                     # Train on the fold's training data
-                    clf.fit(X_train_fold, y_train_fold)
+                    try:
+                        clf.fit(X_train_fold, y_train_fold)
+                    except Exception as e:
+                        print(f"Error fitting {name} in fold {fold_idx+1}, repeat {repeat+1}: {e}")
+                        # Handle error, maybe skip this model for this fold or use default predictions
+                        # For now, let's just print and continue, predictions might fail later
+                        continue # Skip meta-feature generation for this failed model
+
+                    # Make predictions on validation data
+                    try:
+                        y_val_pred = clf.predict(X_val_fold)
+                        y_val_proba = clf.predict_proba(X_val_fold)
+                    except Exception as e:
+                         print(f"Error predicting with {name} in fold {fold_idx+1}, repeat {repeat+1}: {e}")
+                         # Handle error, maybe use default predictions or skip
+                         y_val_pred = np.full(y_val_fold.shape, self.classes_[0]) # Predict majority class or first class
+                         y_val_proba = np.zeros((len(y_val_fold), n_classes))
+                         y_val_proba[:, 0] = 1.0 # Assign full probability to the first class
                     
                     # Make predictions on validation data
                     y_val_pred = clf.predict(X_val_fold)
@@ -702,12 +901,28 @@ class ModelSelectorClassifier(BaseEstimator, ClassifierMixin):
             print(f"\nModel Selection Accuracy with {self.meta_learner} meta-learner: {model_selection_accuracy:.4f}")
             
         logging.info(f"Model Selection Accuracy with {self.meta_learner} meta-learner: {model_selection_accuracy:.4f}")
-        
-        # Train the base classifiers on the full dataset for final predictions
+
+        # Train final base classifiers on the full original scaled data using the determined parameters
+        if self.verbose:
+            print("\nTraining final base classifiers on full data...")
+        self.final_base_classifiers_ = {}
+        # Re-initialize classifiers with the final parameters (loaded or found via GS)
+        self._initialize_classifiers(params_override=self.optimized_base_params_)
+        final_classifier_templates = self.base_classifiers_
+
         for name in self.classifier_names_:
-            clf = self.base_classifiers_[name]
-            clf.fit(X_scaled, y)
-        
+            # Create a fresh copy using the final parameters
+            clf = copy.deepcopy(final_classifier_templates[name])
+            try:
+                clf.fit(X_scaled, y) # Fit on the original scaled data
+                self.final_base_classifiers_[name] = clf
+                if self.verbose:
+                    print(f"  Final {name} trained.")
+            except Exception as e:
+                 print(f"  Error training final {name}: {e}. Storing template.")
+                 # Store the unfitted template if fitting fails
+                 self.final_base_classifiers_[name] = clf
+
         # Store dimensions for validation
         self.n_features_in_ = X.shape[1]
         self.n_meta_features_ = n_meta_features
@@ -724,12 +939,20 @@ class ModelSelectorClassifier(BaseEstimator, ClassifierMixin):
         clusters = self.kmeans_.predict(X_scaled)
         
         for i, name in enumerate(self.classifier_names_):
-            # Get the classifier
-            clf = self.base_classifiers_[name]
-            
+            # Get the FINAL classifier trained on full data
+            if name not in self.final_base_classifiers_:
+                 print(f"Warning: Final classifier for {name} not found in _create_meta_features. Skipping.")
+                 continue # Skip if the final model wasn't trained successfully
+            clf = self.final_base_classifiers_[name]
+
             # Make predictions
-            proba = clf.predict_proba(X_scaled)
-            
+            try:
+                proba = clf.predict_proba(X_scaled)
+            except Exception as e:
+                print(f"Warning: Error predicting probability with final {name} in _create_meta_features: {e}. Using default probabilities.")
+                # Handle error, e.g., use uniform probabilities
+                proba = np.ones((n_samples, self.n_classes_)) / self.n_classes_
+
             # Calculate starting index for this classifier's meta-features
             start_idx = i * (self.n_classes_ + 5)
             
@@ -805,11 +1028,20 @@ class ModelSelectorClassifier(BaseEstimator, ClassifierMixin):
                 )[0]
                 model_perfs[name] = perf
                 
-                # Get the model's prediction
-                clf = self.base_classifiers_[name]
-                model_preds[name] = clf.predict(X_scaled[i:i+1])[0]
-            
-            # Use the model with highest predicted performance
+                # Get the model's prediction from the FINAL classifier
+                if name not in self.final_base_classifiers_:
+                    print(f"Warning: Final classifier for {name} not found in predict. Skipping.")
+                    continue
+                clf = self.final_base_classifiers_[name]
+                try:
+                    model_preds[name] = clf.predict(X_scaled[i:i+1])[0]
+                except Exception as e:
+                    print(f"Warning: Error predicting with final {name} in predict: {e}. Skipping model.")
+                    # Remove from consideration if prediction fails
+                    model_perfs.pop(name, None)
+                    continue # Skip to next model
+
+            # Use the model with highest predicted performance among those that didn't fail
             best_model = max(model_perfs, key=model_perfs.get) if model_perfs else self.classifier_names_[0]
             predictions[i] = model_preds[best_model]
         
@@ -865,11 +1097,22 @@ class ModelSelectorClassifier(BaseEstimator, ClassifierMixin):
                 )[0]
                 model_perfs[name] = perf
                 
-                # Get class probabilities from this model
-                clf = self.base_classifiers_[name]
-                model_class_probs[name] = clf.predict_proba(X_scaled[i:i+1])[0]
-            
-            # Use the model with highest predicted performance
+                # Get class probabilities from the FINAL model
+                if name not in self.final_base_classifiers_:
+                     print(f"Warning: Final classifier for {name} not found in predict_proba. Skipping.")
+                     continue
+                clf = self.final_base_classifiers_[name]
+                try:
+                    model_class_probs[name] = clf.predict_proba(X_scaled[i:i+1])[0]
+                except Exception as e:
+                    print(f"Warning: Error predicting proba with final {name} in predict_proba: {e}. Skipping model.")
+                    # Remove from consideration if prediction fails
+                    model_perfs.pop(name, None)
+                    # Assign default probabilities if needed later
+                    model_class_probs[name] = np.ones(self.n_classes_) / self.n_classes_
+                    continue # Skip to next model
+
+            # Use the model with highest predicted performance among those that didn't fail
             best_model = max(model_perfs, key=model_perfs.get) if model_perfs else self.classifier_names_[0]
             proba[i] = model_class_probs[best_model]
         
@@ -898,9 +1141,11 @@ class ModelSelectorClassifier(BaseEstimator, ClassifierMixin):
             "xgb_n_estimators": self.xgb_n_estimators,
             "xgb_learning_rate": self.xgb_learning_rate,
             "lgbm_n_estimators": self.lgbm_n_estimators,
-            "catboost_n_estimators": self.catboost_n_estimators
+            "catboost_n_estimators": self.catboost_n_estimators,
+            "do_gridsearch": self.do_gridsearch, # Add new param
+            "grid_search_cache_path": self.grid_search_cache_path # Add new param
         }
-    
+
     def set_params(self, **parameters):
         """Set the parameters of this estimator."""
         for parameter, value in parameters.items():

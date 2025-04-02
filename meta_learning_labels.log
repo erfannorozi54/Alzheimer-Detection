@@ -1,24 +1,24 @@
-2025-04-02 02:17:19,265 - --- Inspecting Derived Labels for Meta-Learner ---
-2025-04-02 02:17:19,265 - Original best model choices (all): ['RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'KNN', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'KNN', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'LR', 'RF', 'RF', 'RF', 'RF', 'SVM', 'SVM', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'LR', 'RF', 'SVM', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'XGB', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'LR', 'XGB', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'XGB', 'LR', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'LR', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'NB', 'RF', 'RF']
-2025-04-02 02:17:19,266 - Encoded gating labels (all): [3, 3, 3, 3, 3, 3, 3, 0, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 0, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 1, 3, 3, 3, 3, 4, 4, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 1, 3, 4, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 5, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 1, 5, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 5, 1, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 1, 3, 3, 3, 3, 3, 3, 3, 3, 3, 2, 3, 3]
-2025-04-02 02:17:19,267 - Model name to numeric label mapping: {'KNN': 0, 'LR': 1, 'NB': 2, 'RF': 3, 'SVM': 4, 'XGB': 5}
-2025-04-02 02:17:19,267 - --------------------------------------------------
-2025-04-02 02:17:22,650 - 
+2025-04-02 03:24:58,941 - --- Inspecting Derived Labels for Meta-Learner ---
+2025-04-02 03:24:58,941 - Original best model choices (all): ['RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'KNN', 'RF', 'RF', 'RF', 'RF', 'XGB', 'RF', 'RF', 'RF', 'RF', 'LR', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'LR', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'XGB', 'RF', 'RF', 'RF', 'RF', 'RF', 'KNN', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'XGB', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'XGB', 'NB', 'RF', 'RF', 'RF', 'RF', 'RF', 'KNN', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'KNN', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'SVM', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'XGB', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'SVM', 'LR', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF', 'LR', 'RF', 'RF', 'RF', 'LR', 'RF', 'RF', 'RF', 'RF', 'RF', 'RF']
+2025-04-02 03:24:58,942 - Encoded gating labels (all): [3, 3, 3, 3, 3, 3, 3, 0, 3, 3, 3, 3, 5, 3, 3, 3, 3, 1, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 1, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 5, 3, 3, 3, 3, 3, 0, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 5, 3, 3, 3, 3, 3, 3, 5, 2, 3, 3, 3, 3, 3, 0, 3, 3, 3, 3, 3, 3, 3, 3, 3, 0, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 4, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 5, 3, 3, 3, 3, 3, 3, 3, 4, 1, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 1, 3, 3, 3, 1, 3, 3, 3, 3, 3, 3]
+2025-04-02 03:24:58,943 - Model name to numeric label mapping: {'KNN': 0, 'LR': 1, 'NB': 2, 'RF': 3, 'SVM': 4, 'XGB': 5}
+2025-04-02 03:24:58,943 - --------------------------------------------------
+2025-04-02 03:25:01,452 - 
 --- Base Classifier Performance (Trained on Full Train Set) ---
-2025-04-02 02:17:22,653 - Model: RF | Train Accuracy: 1.0000
-2025-04-02 02:17:22,658 - Model: RF | Test Accuracy: 0.7222
-2025-04-02 02:17:22,659 - Model: LR | Train Accuracy: 1.0000
-2025-04-02 02:17:22,660 - Model: LR | Test Accuracy: 0.6111
-2025-04-02 02:17:22,736 - Model: XGB | Train Accuracy: 1.0000
-2025-04-02 02:17:22,756 - Model: XGB | Test Accuracy: 0.7778
-2025-04-02 02:17:22,757 - Model: DT | Train Accuracy: 0.9872
-2025-04-02 02:17:22,758 - Model: DT | Test Accuracy: 0.7778
-2025-04-02 02:17:22,765 - Model: SVM | Train Accuracy: 1.0000
-2025-04-02 02:17:22,767 - Model: SVM | Test Accuracy: 0.7222
-2025-04-02 02:17:22,788 - Model: KNN | Train Accuracy: 1.0000
-2025-04-02 02:17:22,794 - Model: KNN | Test Accuracy: 0.5556
-2025-04-02 02:17:22,797 - Model: NB | Train Accuracy: 0.9615
-2025-04-02 02:17:22,799 - Model: NB | Test Accuracy: 0.8333
-2025-04-02 02:17:22,801 - Model: GB | Train Accuracy: 1.0000
-2025-04-02 02:17:22,803 - Model: GB | Test Accuracy: 0.7222
-2025-04-02 02:17:22,803 - -----------------------------------------------------------
+2025-04-02 03:25:01,454 - Model: RF | Train Accuracy: 1.0000
+2025-04-02 03:25:01,456 - Model: RF | Test Accuracy: 0.6667
+2025-04-02 03:25:01,457 - Model: LR | Train Accuracy: 1.0000
+2025-04-02 03:25:01,458 - Model: LR | Test Accuracy: 0.6111
+2025-04-02 03:25:01,491 - Model: XGB | Train Accuracy: 1.0000
+2025-04-02 03:25:01,543 - Model: XGB | Test Accuracy: 0.6667
+2025-04-02 03:25:01,544 - Model: DT | Train Accuracy: 0.9872
+2025-04-02 03:25:01,544 - Model: DT | Test Accuracy: 0.7222
+2025-04-02 03:25:01,546 - Model: SVM | Train Accuracy: 1.0000
+2025-04-02 03:25:01,547 - Model: SVM | Test Accuracy: 0.7222
+2025-04-02 03:25:01,585 - Model: KNN | Train Accuracy: 1.0000
+2025-04-02 03:25:01,589 - Model: KNN | Test Accuracy: 0.6667
+2025-04-02 03:25:01,590 - Model: NB | Train Accuracy: 0.8782
+2025-04-02 03:25:01,590 - Model: NB | Test Accuracy: 0.6667
+2025-04-02 03:25:01,591 - Model: GB | Train Accuracy: 1.0000
+2025-04-02 03:25:01,592 - Model: GB | Test Accuracy: 0.6667
+2025-04-02 03:25:01,592 - -----------------------------------------------------------

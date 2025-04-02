@@ -1,0 +1,38 @@
+{
+    "RF": {
+        "max_depth": 10,
+        "min_samples_split": 5,
+        "n_estimators": 50
+    },
+    "LR": {
+        "C": 1.0,
+        "penalty": "l2"
+    },
+    "XGB": {
+        "learning_rate": 0.05,
+        "max_depth": 3,
+        "n_estimators": 50
+    },
+    "DT": {
+        "criterion": "gini",
+        "max_depth": 10,
+        "min_samples_split": 10
+    },
+    "SVM": {
+        "C": 10,
+        "gamma": "scale"
+    },
+    "KNN": {
+        "n_neighbors": 5,
+        "weights": "uniform"
+    },
+    "NB": {
+        "priors": null,
+        "var_smoothing": 1e-09
+    },
+    "GB": {
+        "learning_rate": 0.05,
+        "max_depth": 3,
+        "n_estimators": 100
+    }
+}
