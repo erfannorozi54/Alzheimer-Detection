@@ -214,7 +214,7 @@ if False:
 print("\n\nComparing classification models with different feature selection methods...")
 
 # Split the data - using the SAME preprocessed data from Step 1
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=6)
 
 # Initialize the feature selector with training data
 fs = feature_selector.FeatureSelector(X_train, y_train)
@@ -227,19 +227,19 @@ feature_selection_methods = {
             LogisticRegression(random_state=42),
             SVC(kernel="linear", random_state=42),
         ],
-        top_k=12,
+        top_k=20,
     ),
-    "RandomForest": lambda: fs.random_forest_selection(top_k=12),
-    "Boruta": lambda: fs.boruta_selection(n_estimators=100, max_iter=100, top_k=12),
-    "SI": lambda: fs.separation_index_selection(top_k=12),
-    "weighted_SI": lambda: fs.weighted_separation_index(top_k=12),
-    "multi_resolution_SI": lambda: fs.multi_resolution_separation(top_k=12),
-    "chi2" : lambda: fs.chi_square_selection(top_k=12)
+    "RandomForest": lambda: fs.random_forest_selection(top_k=20),
+    "Boruta": lambda: fs.boruta_selection(n_estimators=100, max_iter=100, top_k=20),
+    "SI": lambda: fs.separation_index_selection(top_k=20),
+    "weighted_SI": lambda: fs.weighted_separation_index(top_k=20),
+    "multi_resolution_SI": lambda: fs.multi_resolution_separation(top_k=20),
+    "chi2" : lambda: fs.chi_square_selection(top_k=20)
 }
 
 # Define classifiers
 classifiers = {
-    "RandomForestfeature_selection_methods": RandomForestClassifier(n_estimators=100, random_state=42),
+    "RandomForestfeature": RandomForestClassifier(n_estimators=100, random_state=42),
     "SVM": SVC(kernel="rbf", random_state=42),
     "LogisticRegression": LogisticRegression(max_iter=1000, random_state=42),
     "ModelSelector": model_selector_classifier.ModelSelectorClassifier(n_folds=10, cv_repeats= 2, n_clusters=4, meta_learner="xgb", random_state=42),
