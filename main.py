@@ -22,6 +22,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import warnings
 import logging
+import json # Added for JSON logging
 import copy  # Add import for deep copying objects
 
 # Import custom modules
@@ -242,7 +243,7 @@ classifiers = {
     "RandomForestfeature": RandomForestClassifier(n_estimators=100, random_state=42),
     "SVM": SVC(kernel="rbf", random_state=42),
     "LogisticRegression": LogisticRegression(max_iter=1000, random_state=42),
-    "ModelSelector": model_selector_classifier.ModelSelectorClassifier(n_folds=10, cv_repeats= 2, n_clusters=4, meta_learner="xgb", random_state=42),
+    "ModelSelector": model_selector_classifier.ModelSelectorClassifier(n_clusters=4, n_cv_splits=10, n_seeds=2, random_state=42, do_gridsearch=True, grid_search_cache_path='model_selector_gs_cache.json', verbose=True),
     "GradientBoosting": GradientBoostingClassifier(n_estimators=100, random_state=42),
     "XGBoost": XGBClassifier(n_estimators=500, random_state=42),
     "LightGBM": LGBMClassifier(n_estimators=100, random_state=42),
@@ -326,6 +327,9 @@ param_grids = {
 # Dictionary to store results
 results = {}
 best_params_log = {} # To store best parameters found
+best_model_selector_pipeline = None # To store the best ModelSelector pipeline
+best_model_selector_accuracy = -1   # To track its accuracy
+best_model_selector_fs_name = None  # To store the feature selection method used
 
 # Perform feature selection and classification
 print("\nPerforming feature selection and classification...")
@@ -397,9 +401,15 @@ for fs_name, fs_method in feature_selection_methods.items():
         print("\nClassification Report:")
         print(classification_report(y_test, y_pred))
 
-        # Log ModelSelectorClassifier accuracy
+        # Log ModelSelectorClassifier accuracy and store the best one
         if clf_name == "ModelSelector":
             logging.info(f"ModelSelectorClassifier Accuracy ({fs_name}): {accuracy:.4f}")
+            if accuracy > best_model_selector_accuracy:
+                best_model_selector_accuracy = accuracy
+                best_model_selector_pipeline = best_estimator # Store the fitted pipeline
+                best_model_selector_fs_name = fs_name
+                print(f"*** New best ModelSelector found: FS='{fs_name}', Accuracy={accuracy:.4f} ***")
+
 
 # Create comparison DataFrame
 comparison_df = pd.DataFrame(results)
@@ -436,3 +446,57 @@ for fs_name, clf_params in best_params_log.items():
     print(f"\nFeature Selection: {fs_name}")
     for clf_name, params in clf_params.items():
         print(f"  {clf_name}: {params}")
+
+
+# =====================================================================================
+# STEP 4: Model Selector Inspection (Added Section)
+# =====================================================================================
+print("\n\n" + "=" * 80)
+print("STEP 4: Model Selector Inspection")
+print("=" * 80)
+
+if best_model_selector_pipeline and best_model_selector_fs_name:
+    print(f"Inspecting the best ModelSelectorClassifier trained with '{best_model_selector_fs_name}' feature selection.")
+    print(f"Best Accuracy achieved: {best_model_selector_accuracy:.4f}")
+
+    # --- Setup Logger for Inspection ---
+    inspection_log_file = 'model_selector_inspection.log'
+    # Remove existing handler if any, to avoid duplicate logs
+    for handler in logging.root.handlers[:]:
+        if isinstance(handler, logging.FileHandler) and handler.baseFilename.endswith(inspection_log_file):
+            logging.root.removeHandler(handler)
+            
+    inspection_logger = logging.getLogger('ModelSelectorInspection')
+    inspection_logger.setLevel(logging.INFO)
+    # Use a specific formatter if needed, here using basic JSON structure via the predict method
+    fh = logging.FileHandler(inspection_log_file, mode='w') # Overwrite log file each run
+    fh.setFormatter(logging.Formatter('%(message)s')) # Log only the message (JSON string)
+    inspection_logger.addHandler(fh)
+    inspection_logger.propagate = False # Prevent logs from going to the root logger
+
+    print(f"Detailed inspection logs will be saved to: {inspection_log_file}")
+
+    # --- Prepare Data for Inspection ---
+    print(f"Applying '{best_model_selector_fs_name}' feature selection to the test set...")
+    # Re-run the specific feature selection method on the original training data (as fs was initialized with it)
+    fs_method_to_run = feature_selection_methods[best_model_selector_fs_name]
+    selected_features_for_inspection = fs_method_to_run()
+    if isinstance(selected_features_for_inspection, dict):
+        selected_features_for_inspection = list(selected_features_for_inspection.keys())
+
+    # Select features from the original test set
+    X_test_selected_for_inspection = X_test[selected_features_for_inspection]
+    print(f"Using {len(selected_features_for_inspection)} features for inspection.")
+
+    # --- Run Prediction with Logging ---
+    print("Running prediction on the test set with detailed logging enabled...")
+    # The pipeline already contains the scaler and the trained ModelSelectorClassifier
+    # We pass y_test to enable correctness logging
+    _ = best_model_selector_pipeline.predict(X_test_selected_for_inspection, y_true=y_test, logger=inspection_logger)
+
+    print("Inspection complete. Logs saved.")
+
+else:
+    print("Skipping Model Selector Inspection: No successful ModelSelectorClassifier training recorded.")
+
+print("\nScript finished.")
