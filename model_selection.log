@@ -1,91 +1,14 @@
-2025-04-02 09:04:58,817 - INFO - Base model RF full data accuracy: 1.0000
-2025-04-02 09:04:58,831 - INFO - Base model LR full data accuracy: 0.9065
-2025-04-02 09:04:59,064 - INFO - Base model XGB full data accuracy: 0.9856
-2025-04-02 09:04:59,073 - INFO - Base model DT full data accuracy: 0.9640
-2025-04-02 09:04:59,088 - INFO - Base model SVM full data accuracy: 0.9424
-2025-04-02 09:04:59,105 - INFO - Base model KNN full data accuracy: 0.8777
-2025-04-02 09:04:59,107 - INFO - Base model NB full data accuracy: 0.8705
-2025-04-02 09:04:59,231 - INFO - Base model GB full data accuracy: 1.0000
-2025-04-02 09:05:06,774 - INFO - Meta-target distribution: RF (235), LR (4), XGB (6), DT (6), SVM (7), KNN (1), NB (3), GB (16)
-2025-04-02 09:05:10,971 - INFO - Meta-learner (xgb) training accuracy: 1.0000
-2025-04-02 09:05:11,115 - INFO - ModelSelectorClassifier Accuracy (Ensemble): 0.8571
-2025-04-02 09:05:18,379 - INFO - Base model RF full data accuracy: 1.0000
-2025-04-02 09:05:18,394 - INFO - Base model LR full data accuracy: 0.8705
-2025-04-02 09:05:18,764 - INFO - Base model XGB full data accuracy: 0.9928
-2025-04-02 09:05:18,768 - INFO - Base model DT full data accuracy: 0.9712
-2025-04-02 09:05:18,774 - INFO - Base model SVM full data accuracy: 0.9353
-2025-04-02 09:05:18,783 - INFO - Base model KNN full data accuracy: 0.8921
-2025-04-02 09:05:18,785 - INFO - Base model NB full data accuracy: 0.8849
-2025-04-02 09:05:18,917 - INFO - Base model GB full data accuracy: 1.0000
-2025-04-02 09:05:25,988 - INFO - Meta-target distribution: RF (240), LR (2), XGB (1), DT (4), SVM (5), KNN (4), NB (5), GB (17)
-2025-04-02 09:05:29,773 - INFO - Meta-learner (xgb) training accuracy: 1.0000
-2025-04-02 09:05:29,873 - INFO - ModelSelectorClassifier Accuracy (RandomForest): 0.8571
-2025-04-02 09:06:02,024 - INFO - Base model RF full data accuracy: 0.9856
-2025-04-02 09:06:02,033 - INFO - Base model LR full data accuracy: 0.7770
-2025-04-02 09:06:02,528 - INFO - Base model XGB full data accuracy: 0.9640
-2025-04-02 09:06:02,533 - INFO - Base model DT full data accuracy: 0.9353
-2025-04-02 09:06:02,541 - INFO - Base model SVM full data accuracy: 0.8705
-2025-04-02 09:06:02,553 - INFO - Base model KNN full data accuracy: 0.8201
-2025-04-02 09:06:02,557 - INFO - Base model NB full data accuracy: 0.7842
-2025-04-02 09:06:02,687 - INFO - Base model GB full data accuracy: 1.0000
-2025-04-02 09:06:09,223 - INFO - Meta-target distribution: RF (18), XGB (7), DT (6), SVM (8), KNN (4), NB (2), GB (233)
-2025-04-02 09:06:14,031 - INFO - Meta-learner (xgb) training accuracy: 0.0647
-2025-04-02 09:06:14,082 - INFO - ModelSelectorClassifier Accuracy (Boruta): 0.7714
-2025-04-02 09:06:21,744 - INFO - Base model RF full data accuracy: 1.0000
-2025-04-02 09:06:21,755 - INFO - Base model LR full data accuracy: 0.8705
-2025-04-02 09:06:22,475 - INFO - Base model XGB full data accuracy: 0.9784
-2025-04-02 09:06:22,481 - INFO - Base model DT full data accuracy: 0.9640
-2025-04-02 09:06:22,495 - INFO - Base model SVM full data accuracy: 0.9568
-2025-04-02 09:06:22,516 - INFO - Base model KNN full data accuracy: 0.8705
-2025-04-02 09:06:22,520 - INFO - Base model NB full data accuracy: 0.8345
-2025-04-02 09:06:22,671 - INFO - Base model GB full data accuracy: 1.0000
-2025-04-02 09:06:28,575 - INFO - Meta-target distribution: RF (255), LR (1), XGB (2), DT (4), SVM (8), NB (3), GB (5)
-2025-04-02 09:06:32,245 - INFO - Meta-learner (xgb) training accuracy: 0.9712
-2025-04-02 09:06:32,350 - INFO - ModelSelectorClassifier Accuracy (SI): 0.8857
-2025-04-02 09:06:39,987 - INFO - Base model RF full data accuracy: 1.0000
-2025-04-02 09:06:39,994 - INFO - Base model LR full data accuracy: 0.8921
-2025-04-02 09:06:40,141 - INFO - Base model XGB full data accuracy: 0.9856
-2025-04-02 09:06:40,144 - INFO - Base model DT full data accuracy: 0.9712
-2025-04-02 09:06:40,150 - INFO - Base model SVM full data accuracy: 0.9640
-2025-04-02 09:06:40,158 - INFO - Base model KNN full data accuracy: 0.8849
-2025-04-02 09:06:40,160 - INFO - Base model NB full data accuracy: 0.8489
-2025-04-02 09:06:40,299 - INFO - Base model GB full data accuracy: 1.0000
-2025-04-02 09:06:47,899 - INFO - Meta-target distribution: RF (258), LR (4), XGB (3), DT (5), SVM (6), GB (2)
-2025-04-02 09:06:50,567 - INFO - Meta-learner (xgb) training accuracy: 0.9928
-2025-04-02 09:06:50,642 - INFO - ModelSelectorClassifier Accuracy (weighted_SI): 0.8857
-2025-04-02 09:07:01,090 - INFO - Base model RF full data accuracy: 1.0000
-2025-04-02 09:07:01,101 - INFO - Base model LR full data accuracy: 0.8777
-2025-04-02 09:07:01,152 - INFO - Base model XGB full data accuracy: 0.9856
-2025-04-02 09:07:01,155 - INFO - Base model DT full data accuracy: 0.9281
-2025-04-02 09:07:01,161 - INFO - Base model SVM full data accuracy: 0.9496
-2025-04-02 09:07:01,169 - INFO - Base model KNN full data accuracy: 0.8849
-2025-04-02 09:07:01,171 - INFO - Base model NB full data accuracy: 0.6115
-2025-04-02 09:07:01,314 - INFO - Base model GB full data accuracy: 1.0000
-2025-04-02 09:07:06,894 - INFO - Meta-target distribution: RF (238), XGB (8), DT (4), SVM (11), KNN (1), NB (4), GB (12)
-2025-04-02 09:07:10,290 - INFO - Meta-learner (xgb) training accuracy: 0.8561
-2025-04-02 09:07:10,385 - INFO - ModelSelectorClassifier Accuracy (multi_resolution_SI): 0.7714
-2025-04-02 09:07:16,710 - INFO - Base model RF full data accuracy: 1.0000
-2025-04-02 09:07:16,719 - INFO - Base model LR full data accuracy: 0.8777
-2025-04-02 09:07:16,748 - INFO - Base model XGB full data accuracy: 0.9640
-2025-04-02 09:07:16,750 - INFO - Base model DT full data accuracy: 0.9568
-2025-04-02 09:07:16,756 - INFO - Base model SVM full data accuracy: 0.9281
-2025-04-02 09:07:16,764 - INFO - Base model KNN full data accuracy: 0.8633
-2025-04-02 09:07:16,766 - INFO - Base model NB full data accuracy: 0.8849
-2025-04-02 09:07:16,911 - INFO - Base model GB full data accuracy: 1.0000
-2025-04-02 09:07:23,723 - INFO - Meta-target distribution: RF (247), XGB (6), DT (6), SVM (7), KNN (2), GB (10)
-2025-04-02 09:07:27,205 - INFO - Meta-learner (xgb) training accuracy: 0.8885
-2025-04-02 09:07:27,318 - INFO - ModelSelectorClassifier Accuracy (chi2): 0.8571
-2025-04-02 09:12:02,068 - INFO - Model Selection Accuracy with xgb meta-learner: 0.3623
-2025-04-02 09:12:03,059 - INFO - ModelSelectorClassifier Accuracy (Ensemble): 0.9429
-2025-04-02 09:12:39,648 - INFO - Model Selection Accuracy with xgb meta-learner: 0.3659
-2025-04-02 09:12:40,601 - INFO - ModelSelectorClassifier Accuracy (RandomForest): 0.8857
-2025-04-02 09:13:44,626 - INFO - Model Selection Accuracy with xgb meta-learner: 0.6996
-2025-04-02 09:13:45,836 - INFO - ModelSelectorClassifier Accuracy (Boruta): 0.7429
-2025-04-02 09:14:24,088 - INFO - Model Selection Accuracy with xgb meta-learner: 0.6190
-2025-04-02 09:14:25,300 - INFO - ModelSelectorClassifier Accuracy (SI): 0.8000
-2025-04-02 09:14:59,714 - INFO - Model Selection Accuracy with xgb meta-learner: 0.4816
-2025-04-02 09:15:01,354 - INFO - ModelSelectorClassifier Accuracy (weighted_SI): 0.8571
-2025-04-02 09:15:47,218 - INFO - Model Selection Accuracy with xgb meta-learner: 0.6960
-2025-04-02 09:15:48,156 - INFO - ModelSelectorClassifier Accuracy (multi_resolution_SI): 0.8000
-2025-04-02 09:16:20,697 - INFO - Model Selection Accuracy with xgb meta-learner: 0.7121
-2025-04-02 09:16:22,331 - INFO - ModelSelectorClassifier Accuracy (chi2): 0.8286
+2025-04-04 22:11:48,381 - INFO - ModelSelectorClassifier Accuracy (Ensemble): 0.8571
+2025-04-04 22:12:26,435 - INFO - ModelSelectorClassifier Accuracy (RandomForest): 0.8857
+2025-04-04 22:13:21,160 - INFO - ModelSelectorClassifier Accuracy (Boruta): 0.8857
+2025-04-04 22:14:00,838 - INFO - ModelSelectorClassifier Accuracy (SI): 0.9429
+2025-04-04 22:14:42,922 - INFO - ModelSelectorClassifier Accuracy (weighted_SI): 0.9143
+2025-04-04 22:15:24,635 - INFO - ModelSelectorClassifier Accuracy (multi_resolution_SI): 1.0000
+2025-04-04 22:16:04,493 - INFO - ModelSelectorClassifier Accuracy (chi2): 0.9143
+2025-04-05 02:38:33,207 - INFO - ModelSelectorClassifier Accuracy (Ensemble): 0.8571
+2025-04-05 02:39:03,058 - INFO - ModelSelectorClassifier Accuracy (RandomForest): 0.8857
+2025-04-05 02:39:46,178 - INFO - ModelSelectorClassifier Accuracy (Boruta): 0.8857
+2025-04-05 02:40:14,787 - INFO - ModelSelectorClassifier Accuracy (SI): 0.9429
+2025-04-05 02:40:45,436 - INFO - ModelSelectorClassifier Accuracy (weighted_SI): 0.9143
+2025-04-05 02:41:13,821 - INFO - ModelSelectorClassifier Accuracy (multi_resolution_SI): 1.0000
+2025-04-05 02:41:42,792 - INFO - ModelSelectorClassifier Accuracy (chi2): 0.9143

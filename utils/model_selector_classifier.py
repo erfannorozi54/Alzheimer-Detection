@@ -1,1161 +1,583 @@
 import numpy as np
-from sklearn.model_selection import StratifiedKFold
-import logging
-logging.basicConfig(filename='model_selection.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier, RandomForestRegressor
-from sklearn.linear_model import LogisticRegression, Ridge
+from sklearn.model_selection import StratifiedKFold, GridSearchCV
+from sklearn.cluster import KMeans
+from sklearn.base import BaseEstimator, ClassifierMixin, clone
+from sklearn.preprocessing import StandardScaler
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+from sklearn.linear_model import LogisticRegression
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.svm import SVC
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.naive_bayes import GaussianNB
-from sklearn.preprocessing import StandardScaler
-from sklearn.utils.validation import check_X_y, check_array, check_is_fitted
-from sklearn.cluster import KMeans
-from sklearn.metrics import accuracy_score, f1_score, roc_auc_score, log_loss
-from sklearn.base import BaseEstimator, ClassifierMixin
-from sklearn.model_selection import GridSearchCV  # Import GridSearchCV
+from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
+import joblib
+import json
+import os
 import warnings
 import copy
-import json  # Import json for caching
-import os    # Import os for file path operations
-warnings.filterwarnings('ignore')
+import logging # Added for logging
 
-# Import advanced meta-learners
+# Check for optional base classifiers
 try:
-    import tensorflow as tf
-    from tensorflow.keras.models import Sequential
-    from tensorflow.keras.layers import Dense, Dropout, BatchNormalization
-    from tensorflow.keras.optimizers import Adam
-    from tensorflow.keras.callbacks import EarlyStopping
-    from tensorflow.keras.regularizers import l2
-    TENSORFLOW_AVAILABLE = True
-except ImportError:
-    TENSORFLOW_AVAILABLE = False
-    warnings.warn("TensorFlow not available. Neural Network meta-learner will not be available.")
-
-try:
-    from xgboost import XGBClassifier, XGBRegressor
+    from xgboost import XGBClassifier
     XGBOOST_AVAILABLE = True
 except ImportError:
     XGBOOST_AVAILABLE = False
-    warnings.warn("XGBoost not available. XGBoost meta-learner will not be available.")
-
-try:
-    from lightgbm import LGBMClassifier, LGBMRegressor
-    LIGHTGBM_AVAILABLE = True
-except ImportError:
-    LIGHTGBM_AVAILABLE = False
-    warnings.warn("LightGBM not available. LightGBM meta-learner will not be available.")
-
-try:
-    from catboost import CatBoostClassifier, CatBoostRegressor
-    CATBOOST_AVAILABLE = True
-except ImportError:
-    CATBOOST_AVAILABLE = False
-    warnings.warn("CatBoost not available. CatBoost meta-learner will not be available.")
+    warnings.warn("XGBoost not available. XGBoost base classifier will not be available.")
 
 
 class ModelSelectorClassifier(BaseEstimator, ClassifierMixin):
     """
-    An enhanced model selector with multiple advanced meta-learners:
-    1. Random Forest (default)
-    2. Linear models (Ridge/LogisticRegression)
-    3. Neural Networks (TensorFlow)
-    4. XGBoost
-    5. LightGBM
-    6. CatBoost
-    
-    Each meta-learner can be used for both correctness classification and performance prediction.
+    A classifier that trains multiple base models and a selector model to determine
+    which base model is best suited for each new data point based on its features
+    and the cluster it belongs to.
     """
     
-    def __init__(
-        self,
-        n_folds: int = 5,
-        cv_repeats: int = 5,  # Number of times to repeat cross-validation
-        random_state: int = 42,
-        meta_learner='rf',  # 'rf', 'lr', 'nn', 'xgb', 'lgbm', 'catboost'
-        verbose: bool = True,
-        metric: str = 'accuracy',  # 'accuracy', 'f1', 'auc', 'log_loss'
-        n_clusters: int = 5,  # Number of feature space clusters
-        use_correctness_classifier: bool = True,  # Use two-stage approach
-        confidence_threshold: float = 0.6,  # Threshold for considering a model "confident"
-        use_synthetic_data: bool = False,  # Whether to use synthetic data
-        synthetic_multiplier: float = 0.5,  # Proportion of synthetic data to generate
-        nn_hidden_layers: list = [16, 16],  # Neural net architecture
-        nn_dropout_rate: float = 0.2,  # Dropout rate for neural networks
-        nn_learning_rate: float = 0.001,  # Learning rate for neural networks
-        nn_epochs: int = 10,  # Max epochs for neural network training
-        nn_early_stopping: bool = True,  # Use early stopping for neural networks
-        nn_batch_size: int = 32,  # Batch size for neural networks
-        xgb_n_estimators: int = 600,  # Number of trees for XGBoost
-        xgb_learning_rate: float = 0.01,  # Learning rate for XGBoost
-        lgbm_n_estimators: int = 200,  # Number of trees for LightGBM
-        catboost_n_estimators: int = 200,  # Number of trees for CatBoost
-        do_gridsearch: bool = True,  # Whether to perform GridSearchCV on base models
-        grid_search_cache_path: str = 'model_selector_gs_cache.json' # Path to cache GS results
-    ):
-        self.n_folds = n_folds
-        self.cv_repeats = cv_repeats
-        self.random_state = random_state
-        self.meta_learner = meta_learner
-        self.verbose = verbose
-        self.metric = metric
-        self.n_clusters = n_clusters
-        self.use_correctness_classifier = use_correctness_classifier
-        self.confidence_threshold = confidence_threshold
-        self.use_synthetic_data = use_synthetic_data
-        self.synthetic_multiplier = synthetic_multiplier
+    def __init__(self, base_models=None, n_clusters=5, selector_model=None, 
+                 n_cv_splits=5, n_seeds=3, random_state=42, 
+                 do_gridsearch=True, grid_search_cache_path='model_selector_gs_cache.json',
+                 verbose=True):
+        """
+        Initialize the ModelSelectorClassifier.
         
-        # Neural network parameters
-        self.nn_hidden_layers = nn_hidden_layers
-        self.nn_dropout_rate = nn_dropout_rate
-        self.nn_learning_rate = nn_learning_rate
-        self.nn_epochs = nn_epochs
-        self.nn_early_stopping = nn_early_stopping
-        self.nn_batch_size = nn_batch_size
-        
-        # Gradient boosting parameters
-        self.xgb_n_estimators = xgb_n_estimators
-        self.xgb_learning_rate = xgb_learning_rate
-        self.lgbm_n_estimators = lgbm_n_estimators
-        self.catboost_n_estimators = catboost_n_estimators
+        Parameters:
+        -----------
+        base_models : dict, optional
+            Dictionary of base models to use. If None, default models will be used.
+        n_clusters : int, default=5
+            Number of clusters to use in KMeans clustering.
+        selector_model : object, default=None
+            Model to use as the selector. If None, RandomForestClassifier will be used.
+        n_cv_splits : int, default=5
+            Number of cross-validation splits for generating selector training data.
+        n_seeds : int, default=3
+            Number of different random seeds to use for cross-validation repeats.
+        random_state : int, default=42
+            Random state for reproducibility.
+        do_gridsearch : bool, default=True
+            Whether to perform grid search for hyperparameter optimization.
+        grid_search_cache_path : str, default='model_selector_gs_cache.json'
+            Path to store/load grid search results.
+        verbose : bool, default=True
+            Whether to print progress messages.
+        """
+        # Initialize grid search parameters
         self.do_gridsearch = do_gridsearch
         self.grid_search_cache_path = grid_search_cache_path
-
-        # Define parameter grids for base model GridSearchCV
-        # Note: Ensure parameters match the base model definitions below
-        self.base_param_grids_ = {
-            "RF": {
+        self.verbose = verbose
+        
+        # Define default base models
+        self.base_models = base_models if base_models is not None else {
+            'RF': RandomForestClassifier(random_state=random_state),
+            'SVM': SVC(probability=True, random_state=random_state),
+            'KNN': KNeighborsClassifier(),
+            'LR': LogisticRegression(random_state=random_state, max_iter=5000),
+            'DT': DecisionTreeClassifier(random_state=random_state),
+            'NB': GaussianNB(),
+            'GB': GradientBoostingClassifier(random_state=random_state)
+        }
+        
+        # Add XGBoost if available
+        if XGBOOST_AVAILABLE:
+            self.base_models['XGB'] = XGBClassifier(random_state=random_state, use_label_encoder=False, eval_metric='logloss')
+            
+        # Define parameter grids for grid search
+        self.base_param_grids = {
+            'RF': {
                 'n_estimators': [50, 100],
                 'max_depth': [10, 20, None],
                 'min_samples_split': [2, 5]
             },
-            "LR": { # Using solver='saga' which supports l1/l2
+            'LR': {
                 'C': [0.1, 1.0, 10.0],
-                'penalty': ['l1', 'l2']
+                'penalty': ['l1', 'l2'],
+                'solver': ['saga']  # Saga supports l1/l2
             },
-            "XGB": {
-                'n_estimators': [50, 100],
-                'learning_rate': [0.05, 0.1],
-                'max_depth': [3, 5]
-            },
-            "DT": {
+            'DT': {
                 'max_depth': [10, 20, None],
                 'min_samples_split': [2, 5, 10],
                 'criterion': ['gini', 'entropy']
             },
-            "SVM": { # probability=True needed
+            'SVM': {
                 'C': [0.1, 1, 10],
                 'gamma': ['scale', 'auto'],
-                # 'kernel': ['rbf'] # Keep kernel='rbf' as default
+                'kernel': ['rbf']  # Keep kernel='rbf' as default
             },
-            "KNN": {
+            'KNN': {
                 'n_neighbors': [3, 5, 7],
                 'weights': ['uniform', 'distance']
             },
-            "GB": {
+            'GB': {
                 'n_estimators': [50, 100],
                 'learning_rate': [0.05, 0.1],
                 'max_depth': [3, 4]
             },
-            # NB typically doesn't need grid search
-            "NB": {}
+            'NB': {}  # NB typically doesn't need grid search
         }
-
-        # Validate meta-learner choice
-        self._validate_meta_learner()
         
-    def _validate_meta_learner(self):
-        """Validate that the selected meta-learner is available."""
-        if self.meta_learner == 'nn' and not TENSORFLOW_AVAILABLE:
-            raise ImportError("TensorFlow is not available. Please install tensorflow or choose a different meta-learner.")
-        elif self.meta_learner == 'xgb' and not XGBOOST_AVAILABLE:
-            raise ImportError("XGBoost is not available. Please install xgboost or choose a different meta-learner.")
-        elif self.meta_learner == 'lgbm' and not LIGHTGBM_AVAILABLE:
-            raise ImportError("LightGBM is not available. Please install lightgbm or choose a different meta-learner.")
-        elif self.meta_learner == 'catboost' and not CATBOOST_AVAILABLE:
-            raise ImportError("CatBoost is not available. Please install catboost or choose a different meta-learner.")
-
-    def _initialize_classifiers(self, params_override=None):
-        """Initialize base classifiers with default or overridden parameters."""
-        if params_override is None:
-            params_override = {}
-
-        # Define default base classifiers and their parameters
-        # Ensure these match the keys in self.base_param_grids_
-        default_classifiers = {
-            "RF": RandomForestClassifier(random_state=self.random_state),
-            "LR": LogisticRegression(solver='saga', max_iter=5000, random_state=self.random_state), # Ensure solver supports penalties if used in grid
-            "XGB": XGBClassifier(random_state=self.random_state, use_label_encoder=False, eval_metric='logloss'), # Suppress warnings
-            "DT": DecisionTreeClassifier(random_state=self.random_state),
-            "SVM": SVC(probability=True, random_state=self.random_state), # Ensure probability=True
-            "KNN": KNeighborsClassifier(), # Default KNN
-            "NB": GaussianNB(),
-            "GB": GradientBoostingClassifier(random_state=self.random_state)
-        }
-
-        # Default parameters (can be overridden by grid search results)
-        default_params = {
-            "RF": {'n_estimators': 100, 'max_features': 'sqrt'},
-            "LR": {'C': 1.0}, # Default C
-            "XGB": {'n_estimators': 100}, # Default n_estimators
-            "DT": {'max_depth': 10, 'min_samples_split': 5},
-            "SVM": {'C': 1.0, 'kernel': 'rbf'}, # Default C and kernel
-            "KNN": {'n_neighbors': 5, 'weights': 'distance'},
-            "NB": {}, # No default params needed
-            "GB": {'n_estimators': 100, 'learning_rate': 0.1, 'max_depth': 4}
-        }
-
-        self.base_classifiers_ = {} # This will hold the classifier instances used in CV
-        self.classifier_names_ = list(default_classifiers.keys()) # Ensure consistent order
-
-        for name in self.classifier_names_:
-            # Start with default parameters for this classifier type
-            current_params = default_params.get(name, {}).copy()
-            # Update with override parameters if available for this classifier
-            if name in params_override:
-                # Make sure keys in override are valid params for the classifier
-                valid_override_keys = {k: v for k, v in params_override[name].items() if k in default_classifiers[name].get_params()}
-                current_params.update(valid_override_keys)
-
-            # Create classifier instance and set parameters
-            clf = default_classifiers[name] # Get the class
-            try:
-                # Create instance with updated parameters
-                clf_instance = clf.set_params(**current_params)
-                self.base_classifiers_[name] = clf_instance
-            except (ValueError, TypeError) as e:
-                print(f"Warning: Could not set parameters {current_params} for {name}. Using defaults. Error: {e}")
-                # Fallback to default instance if setting params fails
-                self.base_classifiers_[name] = default_classifiers[name]
-                # Re-apply only the valid default params
-                valid_default_params = {k: v for k, v in default_params.get(name, {}).items() if k in self.base_classifiers_[name].get_params()}
-                if valid_default_params:
-                    try:
-                        self.base_classifiers_[name].set_params(**valid_default_params)
-                    except (ValueError, TypeError) as e_default:
-                         print(f"Warning: Could not even set default parameters {valid_default_params} for {name}. Error: {e_default}")
-
-
-    def _create_neural_network(self, input_dim, regression=True):
-        """Create a neural network model using TensorFlow."""
-        # Set random seed for reproducibility
-        tf.random.set_seed(self.random_state)
+        # Add XGBoost params if available
+        if XGBOOST_AVAILABLE:
+            self.base_param_grids['XGB'] = {
+                'n_estimators': [50, 100],
+                'learning_rate': [0.05, 0.1],
+                'max_depth': [3, 5]
+            }
+        self.n_clusters = n_clusters
+        self.selector_model = selector_model if selector_model is not None else (
+            RandomForestClassifier(n_estimators=100, random_state=random_state))
+        self.n_cv_splits = n_cv_splits
+        self.n_seeds = n_seeds
+        self.random_state = random_state
         
-        # Create sequential model
-        model = Sequential()
-        
-        # Add input layer with appropriate regularization
-        model.add(Dense(
-            self.nn_hidden_layers[0], 
-            input_dim=input_dim,
-            activation='relu',
-            kernel_regularizer=l2(0.001),
-            kernel_initializer=tf.keras.initializers.HeNormal(seed=self.random_state)
-        ))
-        model.add(BatchNormalization())
-        model.add(Dropout(self.nn_dropout_rate))
-        
-        # Add hidden layers
-        for units in self.nn_hidden_layers[1:]:
-            model.add(Dense(
-                units, 
-                activation='relu',
-                kernel_regularizer=l2(0.001),
-                kernel_initializer=tf.keras.initializers.HeNormal(seed=self.random_state)
-            ))
-            model.add(BatchNormalization())
-            model.add(Dropout(self.nn_dropout_rate))
-        
-        # Add output layer
-        if regression:
-            # Regression: predict a single continuous value
-            model.add(Dense(1, activation='linear'))
-            loss = 'mse'
-            metrics = ['mae']
-        else:
-            # Classification: predict probability of class 1
-            model.add(Dense(2, activation='softmax'))
-            loss = 'sparse_categorical_crossentropy'
-            metrics = ['accuracy']
-            
-        # Compile the model
-        optimizer = Adam(learning_rate=self.nn_learning_rate)
-        model.compile(optimizer=optimizer, loss=loss, metrics=metrics)
-            
-        return model
-        
-    def _create_meta_learner(self, input_dim=None, regression=True):
-        """Create a meta-learner based on the specified type."""
-        if self.meta_learner == 'rf':
-            # Random Forest
-            if regression:
-                return RandomForestRegressor(
-                    n_estimators=500,
-                    max_depth=15,
-                    min_samples_leaf=3,
-                    random_state=self.random_state
-                )
-            else:
-                return RandomForestClassifier(
-                    n_estimators=500,
-                    max_depth=15,
-                    min_samples_leaf=3,
-                    random_state=self.random_state
-                )
-        elif self.meta_learner == 'lr':
-            # Linear Models
-            if regression:
-                return Ridge(
-                    alpha=1.0,
-                    random_state=self.random_state
-                )
-            else:
-                return LogisticRegression(
-                    max_iter=5000,
-                    C=1.0,
-                    solver='saga',
-                    random_state=self.random_state
-                )
-        elif self.meta_learner == 'nn':
-            # Neural Network
-            if not TENSORFLOW_AVAILABLE:
-                raise ImportError("TensorFlow is not available.")
-            
-            if input_dim is None:
-                raise ValueError("input_dim must be provided for neural network meta-learners.")
-                
-            return self._create_neural_network(input_dim, regression=regression)
-            
-        elif self.meta_learner == 'xgb':
-            # XGBoost
-            if not XGBOOST_AVAILABLE:
-                raise ImportError("XGBoost is not available.")
-                
-            if regression:
-                return XGBRegressor(
-                    n_estimators=self.xgb_n_estimators,
-                    learning_rate=self.xgb_learning_rate,
-                    random_state=self.random_state
-                )
-            else:
-                return XGBClassifier(
-                    n_estimators=self.xgb_n_estimators,
-                    learning_rate=self.xgb_learning_rate,
-                    random_state=self.random_state
-                )
-        elif self.meta_learner == 'lgbm':
-            # LightGBM
-            if not LIGHTGBM_AVAILABLE:
-                raise ImportError("LightGBM is not available.")
-                
-            if regression:
-                return LGBMRegressor(
-                    n_estimators=self.lgbm_n_estimators,
-                    random_state=self.random_state
-                )
-            else:
-                return LGBMClassifier(
-                    n_estimators=self.lgbm_n_estimators,
-                    random_state=self.random_state
-                )
-        elif self.meta_learner == 'catboost':
-            # CatBoost
-            if not CATBOOST_AVAILABLE:
-                raise ImportError("CatBoost is not available.")
-                
-            if regression:
-                return CatBoostRegressor(
-                    n_estimators=self.catboost_n_estimators,
-                    random_state=self.random_state,
-                    verbose=False
-                )
-            else:
-                return CatBoostClassifier(
-                    n_estimators=self.catboost_n_estimators,
-                    random_state=self.random_state,
-                    verbose=False
-                )
-        else:
-            raise ValueError(f"Unknown meta_learner: {self.meta_learner}")
-
-    def _fit_meta_learner(self, meta_learner, X, y, is_regression=True):
-        """
-        Fit a meta-learner model with appropriate handling for different model types.
-        This function handles the differences between sklearn-style and TensorFlow models.
-        """
-        if self.meta_learner == 'nn':
-            # Special handling for neural networks
-            callbacks = []
-            if self.nn_early_stopping:
-                early_stopping = EarlyStopping(
-                    monitor='val_loss',
-                    patience=10,
-                    restore_best_weights=True
-                )
-                callbacks.append(early_stopping)
-            
-            # For classification, ensure y is the correct shape
-            if not is_regression:
-                # Neural net expects class indices for sparse categorical crossentropy
-                y = y.astype(int)
-            
-            # Split data for validation
-            val_size = min(0.2, 1.0 / self.n_folds)  # Use at least one fold for validation
-            indices = np.arange(X.shape[0])
-            np.random.shuffle(indices)
-            split_idx = int(X.shape[0] * (1 - val_size))
-            train_indices = indices[:split_idx]
-            val_indices = indices[split_idx:]
-            
-            X_train, X_val = X[train_indices], X[val_indices]
-            y_train, y_val = y[train_indices], y[val_indices]
-            
-            # Fit the neural network
-            history = meta_learner.fit(
-                X_train, y_train,
-                epochs=self.nn_epochs,
-                batch_size=self.nn_batch_size,
-                validation_data=(X_val, y_val),
-                callbacks=callbacks,
-                verbose=0  # Suppress output
-            )
-            
-            # Return the fitted model
-            return meta_learner
-        else:
-            # Standard scikit-learn API
-            return meta_learner.fit(X, y)
-
-    def _predict_meta_learner(self, meta_learner, X, is_regression=True):
-        """
-        Make predictions with a meta-learner model with appropriate handling for different model types.
-        """
-        if self.meta_learner == 'nn':
-            if is_regression:
-                # Regression predictions
-                return meta_learner.predict(X).flatten()
-            else:
-                # Classification probability predictions
-                probs = meta_learner.predict(X)
-                return probs[:, 1]  # Return probability of class 1
-        else:
-            # Standard scikit-learn API
-            if is_regression:
-                return meta_learner.predict(X)
-            else:
-                return meta_learner.predict_proba(X)[:, 1]  # Probability of class 1
-
-    def _calculate_confidence_features(self, probas):
-        """Calculate confidence metrics for a probability array."""
-        # Sort probabilities in descending order
-        sorted_probas = np.sort(probas, axis=1)[:, ::-1]
-        
-        # Margin: difference between highest and second highest probability
-        margin = sorted_probas[:, 0] - sorted_probas[:, 1]
-        
-        # Entropy: measure of uncertainty (-sum(p*log(p)))
-        # Add small epsilon to avoid log(0)
-        epsilon = 1e-10
-        entropy = -np.sum(probas * np.log2(probas + epsilon), axis=1)
-        
-        # Confidence: highest probability
-        confidence = sorted_probas[:, 0]
-        
-        # Dispersion: standard deviation of probabilities
-        dispersion = np.std(probas, axis=1)
-        
-        # Gini impurity: sum(p_i * (1 - p_i))
-        gini = np.sum(probas * (1 - probas), axis=1)
-        
-        return np.column_stack([margin, entropy, confidence, dispersion, gini])
-
-    def _evaluate_classifier(self, y_true, y_pred, y_proba=None):
-        """Evaluate a classifier using the specified metric."""
-        if self.metric == 'accuracy':
-            return accuracy_score(y_true, y_pred)
-        elif self.metric == 'f1':
-            return f1_score(y_true, y_pred, average='weighted')
-        elif self.metric == 'auc':
-            if y_proba is None:
-                raise ValueError("Probability estimates required for AUC calculation")
-            # For multi-class, use One-vs-Rest AUC
-            return roc_auc_score(y_true, y_proba, multi_class='ovr')
-        elif self.metric == 'log_loss':
-            if y_proba is None:
-                raise ValueError("Probability estimates required for log loss calculation")
-            return -log_loss(y_true, y_proba)  # Negative so higher is better
-        else:
-            raise ValueError(f"Unknown metric: {self.metric}")
-
-    def _segment_feature_space(self, X):
-        """Segment the feature space into regions using K-means clustering."""
-        kmeans = KMeans(n_clusters=self.n_clusters, random_state=self.random_state)
-        return kmeans.fit(X)
+        # These will be set during fit
+        self.clusterer = None
+        self.scaler = None
+        self.trained_base_models = {}
+        self.base_model_accuracies = {}
+        self.target_dtype_ = None 
+        self.most_frequent_class_ = None 
+        self.classes_ = None # Store classes seen during fit
     
-    def _generate_synthetic_samples(self, X, y):
-        """Generate synthetic samples by adding noise to existing samples."""
-        n_synthetic = int(X.shape[0] * self.synthetic_multiplier)
-        
-        # Sample indices with replacement
-        indices = np.random.RandomState(self.random_state).choice(
-            X.shape[0], size=n_synthetic, replace=True
-        )
-        
-        # Create synthetic samples by adding small Gaussian noise
-        X_synthetic = X[indices].copy()
-        y_synthetic = y[indices].copy()
-        
-        # Add noise to features (scaled by feature standard deviation)
-        feature_stds = np.std(X, axis=0)
-        noise = np.random.RandomState(self.random_state).normal(
-            0, 0.1, size=X_synthetic.shape
-        ) * feature_stds
-        
-        X_synthetic += noise
-        
-        return X_synthetic, y_synthetic
-
     def fit(self, X, y):
         """
-        Fit the classifier using an enhanced meta-learning approach with more training data.
+        Fit the model selector classifier.
+        
+        Parameters:
+        -----------
+        X : array-like of shape (n_samples, n_features)
+            Training data.
+        y : array-like of shape (n_samples,)
+            Target values.
+            
+        Returns:
+        --------
+        self : object
+            Returns self.
         """
-        # Input validation
-        X, y = check_X_y(X, y)
-        
-        # Store the classes seen during fit
-        self.classes_ = np.unique(y)
-        n_classes = len(self.classes_)
-        
-        # Initialize components
-        self.scaler_ = StandardScaler()
+        # Store target dtype, classes and find most frequent class
+        self.target_dtype_ = y.dtype
+        self.classes_ = np.unique(y) # Store unique classes
+        from collections import Counter
+        self.most_frequent_class_ = Counter(y).most_common(1)[0][0]
 
+        # Initialize components
+        self.scaler = StandardScaler()
+        X_scaled = self.scaler.fit_transform(X)
+        
+        # Cluster the data
+        self.clusterer = KMeans(n_clusters=self.n_clusters, random_state=self.random_state)
+        clusters = self.clusterer.fit_predict(X_scaled)
+        
+        # Store for later use
+        self.trained_base_models = {}
+        self.base_model_accuracies = {}
+        
         # --- Grid Search Logic for Base Models ---
-        base_model_params = {} # Store best params found or loaded
+        base_model_params = {}
         if self.do_gridsearch:
-            if self.verbose:
+            if self.verbose: 
                 print("--- Base Model GridSearchCV Enabled ---")
+            
             # Try loading from cache
             if os.path.exists(self.grid_search_cache_path):
                 try:
                     with open(self.grid_search_cache_path, 'r') as f:
                         base_model_params = json.load(f)
-                    if self.verbose:
+                    if self.verbose: 
                         print(f"Loaded base model parameters from cache: {self.grid_search_cache_path}")
                 except (json.JSONDecodeError, IOError) as e:
-                    if self.verbose:
+                    if self.verbose: 
                         print(f"Cache file found but failed to load ({e}). Running GridSearchCV.")
-                    base_model_params = {} # Reset if loading failed
-
+                    base_model_params = {}  # Reset if loading failed
+            
             # If cache miss or load failed, run GridSearchCV
             if not base_model_params:
-                if self.verbose:
+                if self.verbose: 
                     print("Performing GridSearchCV for base models...")
-                # Need scaled data for grid search
-                temp_scaler = StandardScaler()
-                X_scaled_gs = temp_scaler.fit_transform(X) # Use original X for GS
-
-                # Initialize temporary classifiers just for grid search
-                temp_classifiers = {}
-                self._initialize_classifiers(params_override={}) # Initialize with defaults first
-                temp_classifiers_for_gs = self.base_classifiers_ # Get default instances
-
-                for name, clf in temp_classifiers_for_gs.items():
-                    if name in self.base_param_grids_ and self.base_param_grids_[name]:
-                        if self.verbose:
+                
+                for name, model in self.base_models.items():
+                    if name in self.base_param_grids and self.base_param_grids[name]:
+                        if self.verbose: 
                             print(f"  GridSearching for {name}...")
-                        grid = self.base_param_grids_[name]
-                        # Use a smaller CV for base model grid search to save time
-                        gs = GridSearchCV(clf, grid, cv=3, scoring='accuracy', n_jobs=-1, error_score='raise')
+                        
+                        # Use a fresh instance for GS to avoid state issues
+                        clf_instance = copy.deepcopy(model)
+                        
+                        # Ensure SVM gets probability=True if needed
+                        if name == "SVM":
+                            clf_instance.probability = True
+                        
+                        gs = GridSearchCV(clf_instance, self.base_param_grids[name], 
+                                         cv=3, scoring='accuracy', n_jobs=-1)
                         try:
-                            gs.fit(X_scaled_gs, y) # Fit on scaled original data
+                            gs.fit(X_scaled, y)
                             base_model_params[name] = gs.best_params_
-                            if self.verbose:
+                            if self.verbose: 
                                 print(f"    Best params for {name}: {gs.best_params_}")
                         except Exception as e:
                             print(f"    GridSearchCV failed for {name}: {e}. Using defaults.")
-                            # Keep default params if GS fails
-                            # First ensure defaults are initialized if not already
-                            if not hasattr(self, 'base_classifiers_') or not self.base_classifiers_:
-                                self._initialize_classifiers(params_override={})
-                            # Access the default instance from the attribute
-                            if name in self.base_classifiers_:
-                                base_model_params[name] = self.base_classifiers_[name].get_params()
-                            else: # Should not happen if initialized correctly
-                                print(f"    Error: Default classifier {name} not found for fallback.")
-                                base_model_params[name] = {} # Empty params as last resort
-                    else:
-                         # If no grid defined, use default params
-                         # First ensure defaults are initialized if not already
-                         if not hasattr(self, 'base_classifiers_') or not self.base_classifiers_:
-                             self._initialize_classifiers(params_override={})
-                         # Access the default instance from the attribute
-                         if name in self.base_classifiers_:
-                             base_model_params[name] = self.base_classifiers_[name].get_params()
-                         else: # Should not happen if initialized correctly
-                             print(f"    Error: Default classifier {name} not found for fallback.")
-                             base_model_params[name] = {} # Empty params as last resort
-
-
+                            # Keep original model parameters
+                            base_model_params[name] = {}
+                
                 # Save results to cache
                 try:
+                    # Convert numpy types to standard types for JSON serialization
+                    serializable_params = {}
+                    for name, params in base_model_params.items():
+                        serializable_params[name] = {k: (v.item() if hasattr(v, 'item') else v) 
+                                                    for k, v in params.items()}
+                    
                     with open(self.grid_search_cache_path, 'w') as f:
-                        json.dump(base_model_params, f, indent=4)
-                    if self.verbose:
+                        json.dump(serializable_params, f, indent=4)
+                    if self.verbose: 
                         print(f"Saved base model parameters to cache: {self.grid_search_cache_path}")
-                except IOError as e:
-                    if self.verbose:
+                except (IOError, TypeError) as e:
+                    if self.verbose: 
                         print(f"Failed to save cache file: {e}")
-        else:
-             if self.verbose:
-                print("--- Base Model GridSearchCV Disabled ---")
-        # --- End Grid Search Logic ---
-
-        # Initialize classifiers with potentially optimized parameters
-        self._initialize_classifiers(params_override=base_model_params)
-        self.optimized_base_params_ = base_model_params # Store the params used
-
-        # Scale features using the main scaler
-        X_scaled = self.scaler_.fit_transform(X)
         
-        # Generate synthetic data if enabled
-        if self.use_synthetic_data:
-            X_synthetic, y_synthetic = self._generate_synthetic_samples(X_scaled, y)
-            X_aug = np.vstack([X_scaled, X_synthetic])
-            y_aug = np.concatenate([y, y_synthetic])
-            
-            if self.verbose:
-                print(f"Generated {X_synthetic.shape[0]} synthetic samples")
-                print(f"Total training samples: {X_aug.shape[0]}")
-        else:
-            X_aug = X_scaled
-            y_aug = y
+        # Update models with optimized parameters
+        for name, model in self.base_models.items():
+            if name in base_model_params and base_model_params[name]:
+                # Create a copy of the model with optimized parameters
+                optimized_model = copy.deepcopy(model)
+                try:
+                    optimized_model.set_params(**base_model_params[name])
+                    self.base_models[name] = optimized_model
+                except Exception as e:
+                    print(f"Error setting parameters for {name}: {e}. Using default parameters.")
         
-        # Segment the feature space (for regional specialization)
-        self.kmeans_ = self._segment_feature_space(X_aug)
+        # Generate training data for the selector model
+        selector_X, selector_y = self._generate_selector_training_data(X_scaled, y, clusters)
         
-        # Initialize storage for meta-learning
-        all_meta_features = []
-        all_meta_correctness = {name: [] for name in self.classifier_names_}
-        all_meta_perf_scores = {name: [] for name in self.classifier_names_}
-        
-        # Each base classifier contributes:
-        # - Class probabilities
-        # - Confidence metrics (margin, entropy, confidence, dispersion, gini)
-        base_meta_features = len(self.classifier_names_) * (n_classes + 5)
-        
-        # Add cluster indicators
-        extra_features = self.n_clusters
-        
-        # Total number of meta-features
-        n_meta_features = base_meta_features + extra_features
-        
-        # Store the initialized (potentially optimized) base classifiers for use in CV
-        # These instances have the parameters set (either default or from GS)
-        cv_base_classifiers = self.base_classifiers_
-
-        # Repeat cross-validation multiple times to generate more meta-learning data
-        for repeat in range(self.cv_repeats):
-            if self.verbose:
-                print(f"\nRepeat {repeat+1}/{self.cv_repeats}")
-                print("=" * 40)
-            
-            # Create stratified K-fold with different random seed for each repeat
-            cv = StratifiedKFold(n_splits=self.n_folds, shuffle=True, 
-                               random_state=self.random_state + repeat)
-            
-            # For each fold in cross-validation
-            for fold_idx, (train_idx, val_idx) in enumerate(cv.split(X_aug, y_aug)):
+        # Train the final base models on all data
+        for name, model in self.base_models.items():
+            try:
+                self.trained_base_models[name] = model.fit(X_scaled, y)
                 if self.verbose:
-                    print(f"\nFold {fold_idx+1}/{self.n_folds}")
-                    print("-" * 40)
+                    print(f"Trained base model: {name}")
+            except Exception as e:
+                print(f"Error training {name}: {e}. Model will be unavailable.")
+        
+        # Train the selector model
+        # Add cluster information to the features
+        selector_features = np.column_stack([selector_X, self._get_cluster_features(selector_X)])
+        self.selector_model.fit(selector_features, selector_y)
+        
+        return self
+    
+    def _generate_selector_training_data(self, X, y, clusters):
+        """
+        Generate training data for the selector model through cross-validation.
+        
+        Parameters:
+        -----------
+        X : array-like
+            Scaled training data.
+        y : array-like
+            Target values.
+        clusters : array-like
+            Cluster assignments for each sample.
+            
+        Returns:
+        --------
+        selector_X : array-like
+            Features for the selector model (original features + cluster info).
+        selector_y : array-like
+            Target labels for the selector model (which base model to use).
+        """
+        # Initialize arrays to store votes for each model on each sample
+        n_samples = X.shape[0]
+        model_votes = {name: np.zeros(n_samples) for name in self.base_models.keys()}
+        
+        # Repeat CV process with different seeds
+        for seed in range(self.n_seeds):
+            # Create stratified k-fold for cross-validation
+            cv = StratifiedKFold(n_splits=self.n_cv_splits, shuffle=True, 
+                                random_state=self.random_state + seed)
+            
+            # For each fold
+            for train_idx, val_idx in cv.split(X, y):
+                X_train, X_val = X[train_idx], X[val_idx]
+                y_train, y_val = y[train_idx], y[val_idx]
                 
-                X_train_fold = X_aug[train_idx]
-                y_train_fold = y_aug[train_idx]
-                X_val_fold = X_aug[val_idx]
-                y_val_fold = y_aug[val_idx]
+                # Train each base model on training portion
+                fold_models = {}
+                fold_accuracies = {}
                 
-                # Get cluster assignments for validation samples
-                val_clusters = self.kmeans_.predict(X_val_fold)
+                for name, model in self.base_models.items():
+                    # Clone the model to avoid affecting the original
+                    fold_model = clone(model)
+                    fold_model.fit(X_train, y_train)
+                    
+                    # Predict on validation set and calculate accuracy
+                    y_pred = fold_model.predict(X_val)
+                    fold_accuracies[name] = accuracy_score(y_val, y_pred)
+                    
+                    # Store the model
+                    fold_models[name] = fold_model
                 
-                # Create meta-features for this fold
-                X_meta_fold = np.zeros((len(val_idx), n_meta_features))
-                
-                # For tracking model performance on this fold
-                fold_correctness = {name: [] for name in self.classifier_names_}
-                fold_perf_scores = {name: [] for name in self.classifier_names_}
-                
-                # Train each base classifier and collect meta-features
-                for i, name in enumerate(self.classifier_names_):
-                    # Create a fresh copy of the potentially optimized classifier for this fold
-                    clf = copy.deepcopy(cv_base_classifiers[name])
+                # Determine which model is best for each validation sample
+                for i, idx in enumerate(val_idx):
+                    correct_models = []
+                    
+                    # Check which models correctly classify this sample
+                    for name, model in fold_models.items():
+                        if model.predict([X_val[i]])[0] == y_val[i]:
+                            correct_models.append(name)
+                    
+                    # If at least one model is correct, vote for the one with highest accuracy
+                    if correct_models:
+                        best_model = max(correct_models, key=lambda name: fold_accuracies[name])
+                        model_votes[best_model][idx] += 1
+        
+        # For each sample, determine the model with the most votes
+        selector_y = np.array([max(model_votes.keys(), 
+                                  key=lambda name: model_votes[name][i]) 
+                              for i in range(n_samples)])
+        
+        # Calculate final accuracy for each base model on all data
+        for name, model in self.base_models.items():
+            temp_model = clone(model)
+            temp_model.fit(X, y)
+            self.base_model_accuracies[name] = accuracy_score(y, temp_model.predict(X))
+        
+        # Include cluster information in the features
+        selector_X = X
+        
+        return selector_X, selector_y
+    
+    def _get_cluster_features(self, X):
+        """
+        Get cluster assignments and distances for samples.
+        
+        Parameters:
+        -----------
+        X : array-like
+            Data samples.
+            
+        Returns:
+        --------
+        cluster_features : array-like
+            Array containing cluster assignments and distances to cluster centers.
+        """
+        clusters = self.clusterer.predict(X)
+        distances = self.clusterer.transform(X)  # Distance to each cluster center
+        
+        # Create one-hot encoding of cluster assignments
+        cluster_one_hot = np.zeros((X.shape[0], self.n_clusters))
+        for i, cluster in enumerate(clusters):
+            cluster_one_hot[i, cluster] = 1
+            
+        # Combine cluster assignments and distances
+        return np.hstack([cluster_one_hot, distances])
 
-                    # Train on the fold's training data
-                    try:
-                        clf.fit(X_train_fold, y_train_fold)
-                    except Exception as e:
-                        print(f"Error fitting {name} in fold {fold_idx+1}, repeat {repeat+1}: {e}")
-                        # Handle error, maybe skip this model for this fold or use default predictions
-                        # For now, let's just print and continue, predictions might fail later
-                        continue # Skip meta-feature generation for this failed model
+    def predict(self, X, y_true=None, logger=None):
+        """
+        Predict class labels for samples in X and optionally log details.
+        
+        Parameters:
+        -----------
+        X : array-like of shape (n_samples, n_features)
+            Samples to predict.
+        y_true : array-like of shape (n_samples,), optional
+            True labels for logging comparison.
+        logger : logging.Logger, optional
+            Logger instance for detailed logging.
+            
+        Returns:
+        --------
+        y_pred : array-like
+            Predicted class labels.
+        """
+        if logger and y_true is None:
+            logger.warning("y_true not provided to predict method. Cannot log prediction correctness.")
+            
+        # Scale the data
+        X_scaled = self.scaler.transform(X)
+        
+        # Get cluster features
+        cluster_features = self._get_cluster_features(X_scaled)
+        
+        # Combine original features with cluster features for selector
+        selector_features = np.column_stack([X_scaled, cluster_features])
+        
+        # Use selector model to predict which base model to use for each sample
+        selected_models = self.selector_model.predict(selector_features)
+        
+        # Use the selected model for each sample
+        y_pred = np.empty(X.shape[0], dtype=self.target_dtype_)
+        
+        for i, selected_model_name in enumerate(selected_models):
+            final_prediction = None
+            log_entry = {}
+            
+            if logger:
+                log_entry['sample_index'] = i
+                log_entry['selected_model'] = selected_model_name
+                log_entry['base_model_predictions'] = {}
 
-                    # Make predictions on validation data
+            # Get predictions from all base models for logging
+            if logger:
+                for name, model in self.trained_base_models.items():
                     try:
-                        y_val_pred = clf.predict(X_val_fold)
-                        y_val_proba = clf.predict_proba(X_val_fold)
+                        pred = model.predict([X_scaled[i]])[0]
+                        log_entry['base_model_predictions'][name] = pred
                     except Exception as e:
-                         print(f"Error predicting with {name} in fold {fold_idx+1}, repeat {repeat+1}: {e}")
-                         # Handle error, maybe use default predictions or skip
-                         y_val_pred = np.full(y_val_fold.shape, self.classes_[0]) # Predict majority class or first class
-                         y_val_proba = np.zeros((len(y_val_fold), n_classes))
-                         y_val_proba[:, 0] = 1.0 # Assign full probability to the first class
-                    
-                    # Make predictions on validation data
-                    y_val_pred = clf.predict(X_val_fold)
-                    y_val_proba = clf.predict_proba(X_val_fold)
-                    
-                    # Check correctness
-                    correctness = (y_val_pred == y_val_fold).astype(int)
-                    fold_correctness[name] = correctness
-                    
-                    # Calculate performance scores (confidence-weighted correctness)
-                    perf_scores = np.zeros(len(val_idx))
-                    for j in range(len(val_idx)):
-                        pred = y_val_pred[j]
-                        true = y_val_fold[j]
-                        proba = y_val_proba[j]
-                        confidence = proba[np.where(self.classes_ == pred)[0][0]]
-                        
-                        if pred == true:
-                            perf_scores[j] = confidence
-                        else:
-                            perf_scores[j] = -confidence
-                    
-                    fold_perf_scores[name] = perf_scores
-                    
-                    # Calculate overall performance for this fold
-                    performance = self._evaluate_classifier(y_val_fold, y_val_pred, y_val_proba)
-                    
+                        log_entry['base_model_predictions'][name] = f"Error: {e}"
+
+            # Make the final prediction using the selected model
+            try:
+                if selected_model_name in self.trained_base_models:
+                    final_prediction = self.trained_base_models[selected_model_name].predict([X_scaled[i]])[0]
+                else:
+                    # Fallback strategy
                     if self.verbose:
-                        print(f"{name} {self.metric}: {performance:.4f}")
-                    
-                    # Calculate starting index for this classifier's meta-features
-                    start_idx = i * (n_classes + 5)
-                    
-                    # Store probabilities as meta-features
-                    X_meta_fold[:, start_idx:start_idx+n_classes] = y_val_proba
-                    
-                    # Calculate and store confidence features
-                    confidence_features = self._calculate_confidence_features(y_val_proba)
-                    X_meta_fold[:, start_idx+n_classes:start_idx+n_classes+5] = confidence_features
-                
-                # Add cluster indicators
-                cluster_feature_start = base_meta_features
-                for j in range(len(val_idx)):
-                    cluster_id = val_clusters[j]
-                    X_meta_fold[j, cluster_feature_start + cluster_id] = 1
-                
-                # Store meta-features and targets for meta-learning
-                all_meta_features.append(X_meta_fold)
-                for name in self.classifier_names_:
-                    all_meta_correctness[name].append(fold_correctness[name])
-                    all_meta_perf_scores[name].append(fold_perf_scores[name])
-        
-        # Combine all meta-features and targets
-        X_meta_all = np.vstack(all_meta_features)
-        for name in self.classifier_names_:
-            all_meta_correctness[name] = np.concatenate(all_meta_correctness[name])
-            all_meta_perf_scores[name] = np.concatenate(all_meta_perf_scores[name])
-        
-        # Only use samples where at least one model is correct
-        correct_samples_mask = np.zeros(X_meta_all.shape[0], dtype=bool)
-        for name in self.classifier_names_:
-            correct_samples_mask = correct_samples_mask | (all_meta_correctness[name] == 1)
-        
-        # Filter meta-features to only use samples with at least one correct model
-        X_meta_correct = X_meta_all[correct_samples_mask]
-        
-        # Filter correctness and performance scores
-        correctness_filtered = {}
-        perf_scores_filtered = {}
-        for name in self.classifier_names_:
-            correctness_filtered[name] = all_meta_correctness[name][correct_samples_mask]
-            perf_scores_filtered[name] = all_meta_perf_scores[name][correct_samples_mask]
-        
-        # Count how many samples have at least one correct model
-        n_correct_samples = correct_samples_mask.sum()
-        
-        if self.verbose:
-            print(f"\nSamples with at least one correct model: {n_correct_samples}/{X_meta_all.shape[0]} ({n_correct_samples/X_meta_all.shape[0]*100:.1f}%)")
-        
-        # Create correctness classifiers (predict if a model will be correct)
-        if self.use_correctness_classifier:
-            self.correctness_classifiers_ = {}
-            
-            for name in self.classifier_names_:
-                # Create binary classifier to predict if this model will be correct
-                correctness_clf = self._create_meta_learner(
-                    input_dim=X_meta_all.shape[1], 
-                    regression=False
-                )
-                
-                # Train the classifier on all meta-features
-                self._fit_meta_learner(
-                    correctness_clf, 
-                    X_meta_all, 
-                    all_meta_correctness[name],
-                    is_regression=False
-                )
-                
-                self.correctness_classifiers_[name] = correctness_clf
-                
-                if self.verbose:
-                    # For neural networks, we can't easily get the training accuracy
-                    if self.meta_learner != 'nn':
-                        # Evaluate classifier on training data
-                        train_acc = correctness_clf.score(X_meta_all, all_meta_correctness[name])
-                        print(f"Correctness classifier for {name}: {train_acc:.4f} accuracy")
-        
-        # Create performance predictors (predict how well a model will perform)
-        self.performance_predictors_ = {}
-        
-        for name in self.classifier_names_:
-            # Create a regressor to predict this model's performance
-            performance_predictor = self._create_meta_learner(
-                input_dim=X_meta_correct.shape[1], 
-                regression=True
-            )
-            
-            # Train the regressor only on samples with at least one correct model
-            self._fit_meta_learner(
-                performance_predictor, 
-                X_meta_correct, 
-                perf_scores_filtered[name],
-                is_regression=True
-            )
-            
-            self.performance_predictors_[name] = performance_predictor
-            
-            if self.verbose:
-                # For neural networks, we can't easily get the R-squared
-                if self.meta_learner != 'nn':
-                    # Evaluate regressor on training data
-                    train_r2 = performance_predictor.score(X_meta_correct, perf_scores_filtered[name])
-                    print(f"Performance predictor for {name}: {train_r2:.4f} R²")
-        
-        # Calculate model selection accuracy on meta-learning data
-        predicted_best_models = []
-        actual_best_models = []
-        
-        for i in range(X_meta_correct.shape[0]):
-            # Step 1: Identify models predicted to be correct
-            correct_models = []
-            for name in self.classifier_names_:
-                if correctness_filtered[name][i] == 1:
-                    correct_models.append(name)
-                    
-            # Step 2: Find the model with highest performance score
-            model_scores = {}
-            for name in correct_models:
-                model_scores[name] = perf_scores_filtered[name][i]
-            
-            actual_best_model = max(model_scores, key=model_scores.get)
-            actual_best_models.append(actual_best_model)
-            
-            # Predict using our meta-learners
-            # Step 1: Identify models predicted to be correct
-            pred_correct_models = []
-            if self.use_correctness_classifier:
-                for name in self.classifier_names_:
-                    # Predict if this model will be correct
-                    correctness_prob = self._predict_meta_learner(
-                        self.correctness_classifiers_[name],
-                        X_meta_correct[i:i+1],
-                        is_regression=False
-                    )
-                    if correctness_prob >= self.confidence_threshold:
-                        pred_correct_models.append(name)
-            
-            # If no models are predicted to be correct or we're not using correctness classifier,
-            # consider all models
-            if not pred_correct_models or not self.use_correctness_classifier:
-                pred_correct_models = self.classifier_names_
-            
-            # Step 2: Among potentially correct models, choose one with highest predicted performance
-            model_perfs = {}
-            for name in pred_correct_models:
-                perf = self._predict_meta_learner(
-                    self.performance_predictors_[name],
-                    X_meta_correct[i:i+1],
-                    is_regression=True
-                )[0]
-                model_perfs[name] = perf
-            
-            best_model = max(model_perfs, key=model_perfs.get) if model_perfs else self.classifier_names_[0]
-            predicted_best_models.append(best_model)
-        
-        # Calculate model selection accuracy
-        model_selection_accuracy = np.mean(np.array(predicted_best_models) == np.array(actual_best_models))
-        
-        if self.verbose:
-            print(f"\nModel Selection Accuracy with {self.meta_learner} meta-learner: {model_selection_accuracy:.4f}")
-            
-        logging.info(f"Model Selection Accuracy with {self.meta_learner} meta-learner: {model_selection_accuracy:.4f}")
-
-        # Train final base classifiers on the full original scaled data using the determined parameters
-        if self.verbose:
-            print("\nTraining final base classifiers on full data...")
-        self.final_base_classifiers_ = {}
-        # Re-initialize classifiers with the final parameters (loaded or found via GS)
-        self._initialize_classifiers(params_override=self.optimized_base_params_)
-        final_classifier_templates = self.base_classifiers_
-
-        for name in self.classifier_names_:
-            # Create a fresh copy using the final parameters
-            clf = copy.deepcopy(final_classifier_templates[name])
-            try:
-                clf.fit(X_scaled, y) # Fit on the original scaled data
-                self.final_base_classifiers_[name] = clf
-                if self.verbose:
-                    print(f"  Final {name} trained.")
+                        print(f"Warning: Selected model '{selected_model_name}' not available for sample {i}. Using fallback.")
+                    if logger:
+                        log_entry['fallback_reason'] = f"Selected model '{selected_model_name}' not available."
+                        
+                    available_models = list(self.trained_base_models.keys())
+                    if available_models:
+                        best_available = max(available_models, key=lambda m: self.base_model_accuracies.get(m, 0))
+                        final_prediction = self.trained_base_models[best_available].predict([X_scaled[i]])[0]
+                        if logger:
+                            log_entry['fallback_model_used'] = best_available
+                    else:
+                        if self.verbose:
+                            print(f"Warning: No models available for sample {i}. Predicting most frequent class.")
+                        if logger:
+                            log_entry['fallback_reason'] = "No base models available."
+                        final_prediction = self.most_frequent_class_
+                        
             except Exception as e:
-                 print(f"  Error training final {name}: {e}. Storing template.")
-                 # Store the unfitted template if fitting fails
-                 self.final_base_classifiers_[name] = clf
+                print(f"Error predicting sample {i} with model {selected_model_name}: {e}")
+                if logger:
+                    log_entry['error'] = f"Prediction error with {selected_model_name}: {e}"
+                # Fallback to most frequent class on error
+                final_prediction = self.most_frequent_class_
 
-        # Store dimensions for validation
-        self.n_features_in_ = X.shape[1]
-        self.n_meta_features_ = n_meta_features
-        self.n_classes_ = n_classes
-        
-        return self
-    
-    def _create_meta_features(self, X_scaled):
-        """Create meta-features for prediction time."""
-        n_samples = X_scaled.shape[0]
-        meta_features = np.zeros((n_samples, self.n_meta_features_))
-        
-        # Get cluster assignments
-        clusters = self.kmeans_.predict(X_scaled)
-        
-        for i, name in enumerate(self.classifier_names_):
-            # Get the FINAL classifier trained on full data
-            if name not in self.final_base_classifiers_:
-                 print(f"Warning: Final classifier for {name} not found in _create_meta_features. Skipping.")
-                 continue # Skip if the final model wasn't trained successfully
-            clf = self.final_base_classifiers_[name]
+            y_pred[i] = final_prediction
 
-            # Make predictions
-            try:
-                proba = clf.predict_proba(X_scaled)
-            except Exception as e:
-                print(f"Warning: Error predicting probability with final {name} in _create_meta_features: {e}. Using default probabilities.")
-                # Handle error, e.g., use uniform probabilities
-                proba = np.ones((n_samples, self.n_classes_)) / self.n_classes_
-
-            # Calculate starting index for this classifier's meta-features
-            start_idx = i * (self.n_classes_ + 5)
-            
-            # Store probabilities as meta-features
-            meta_features[:, start_idx:start_idx+self.n_classes_] = proba
-            
-            # Calculate and store confidence features
-            confidence_features = self._calculate_confidence_features(proba)
-            meta_features[:, start_idx+self.n_classes_:start_idx+self.n_classes_+5] = confidence_features
-        
-        # Add cluster indicators
-        base_meta_features = len(self.classifier_names_) * (self.n_classes_ + 5)
-        cluster_feature_start = base_meta_features
-        
-        for i in range(n_samples):
-            # Add one-hot encoding of cluster
-            cluster_id = clusters[i]
-            meta_features[i, cluster_feature_start + cluster_id] = 1
-        
-        return meta_features
-    
-    def predict(self, X):
-        """Predict using the advanced meta-model approach."""
-        # Check if fit has been called
-        check_is_fitted(self)
-        
-        # Input validation
-        X = check_array(X)
-        
-        # Validate dimensions
-        if X.shape[1] != self.n_features_in_:
-            raise ValueError(f"X has {X.shape[1]} features, but AdvancedModelSelectorClassifier "
-                           f"was trained with {self.n_features_in_} features.")
-        
-        # Scale features
-        X_scaled = self.scaler_.transform(X)
-        
-        # Create meta-features
-        X_meta = self._create_meta_features(X_scaled)
-        
-        # For each instance, predict using the best model
-        predictions = np.zeros(X.shape[0], dtype=int)
-        
-        for i in range(X.shape[0]):
-            # Step 1: Identify models predicted to be correct
-            correct_models = []
-            if self.use_correctness_classifier:
-                for name in self.classifier_names_:
-                    # Predict if this model will be correct
-                    correctness_prob = self._predict_meta_learner(
-                        self.correctness_classifiers_[name],
-                        X_meta[i:i+1],
-                        is_regression=False
-                    )
-                    if correctness_prob >= self.confidence_threshold:
-                        correct_models.append(name)
-            
-            # If no models are predicted to be correct or we're not using correctness classifier,
-            # consider all models
-            if not correct_models or not self.use_correctness_classifier:
-                correct_models = self.classifier_names_
-            
-            # Step 2: Among potentially correct models, choose the one with highest predicted performance
-            model_perfs = {}
-            model_preds = {}
-            
-            for name in correct_models:
-                # Get predicted performance
-                perf = self._predict_meta_learner(
-                    self.performance_predictors_[name],
-                    X_meta[i:i+1],
-                    is_regression=True
-                )[0]
-                model_perfs[name] = perf
+            # Log details if logger is provided
+            if logger:
+                log_entry['final_prediction'] = final_prediction
+                if y_true is not None:
+                    log_entry['true_target'] = y_true[i]
+                    log_entry['is_correct'] = (final_prediction == y_true[i])
                 
-                # Get the model's prediction from the FINAL classifier
-                if name not in self.final_base_classifiers_:
-                    print(f"Warning: Final classifier for {name} not found in predict. Skipping.")
-                    continue
-                clf = self.final_base_classifiers_[name]
-                try:
-                    model_preds[name] = clf.predict(X_scaled[i:i+1])[0]
-                except Exception as e:
-                    print(f"Warning: Error predicting with final {name} in predict: {e}. Skipping model.")
-                    # Remove from consideration if prediction fails
-                    model_perfs.pop(name, None)
-                    continue # Skip to next model
+                # Convert numpy types for JSON compatibility if logging as JSON
+                log_entry_serializable = json.loads(json.dumps(log_entry, default=lambda o: int(o) if isinstance(o, np.integer) else float(o) if isinstance(o, np.floating) else str(o)))
+                logger.info(json.dumps(log_entry_serializable)) # Log as JSON string
 
-            # Use the model with highest predicted performance among those that didn't fail
-            best_model = max(model_perfs, key=model_perfs.get) if model_perfs else self.classifier_names_[0]
-            predictions[i] = model_preds[best_model]
-        
-        return predictions
-    
+        return y_pred
+
     def predict_proba(self, X):
-        """Predict class probabilities."""
-        # Check if fit has been called
-        check_is_fitted(self)
+        """
+        Predict class probabilities for samples in X.
         
-        # Input validation
-        X = check_array(X)
-        
-        # Scale features
-        X_scaled = self.scaler_.transform(X)
-        
-        # Create meta-features
-        X_meta = self._create_meta_features(X_scaled)
-        
-        # Initialize probability matrix
-        proba = np.zeros((X.shape[0], len(self.classes_)))
-        
-        # For each instance, get probabilities from the best model
-        for i in range(X.shape[0]):
-            # Step 1: Identify models predicted to be correct
-            correct_models = []
-            if self.use_correctness_classifier:
-                for name in self.classifier_names_:
-                    # Predict if this model will be correct
-                    correctness_prob = self._predict_meta_learner(
-                        self.correctness_classifiers_[name],
-                        X_meta[i:i+1],
-                        is_regression=False
-                    )
-                    if correctness_prob >= self.confidence_threshold:
-                        correct_models.append(name)
+        Parameters:
+        -----------
+        X : array-like of shape (n_samples, n_features)
+            Samples to predict.
             
-            # If no models are predicted to be correct or we're not using correctness classifier,
-            # consider all models
-            if not correct_models or not self.use_correctness_classifier:
-                correct_models = self.classifier_names_
-            
-            # Step 2: Among potentially correct models, choose the one with highest predicted performance
-            model_perfs = {}
-            model_class_probs = {}
-            
-            for name in correct_models:
-                # Get predicted performance
-                perf = self._predict_meta_learner(
-                    self.performance_predictors_[name],
-                    X_meta[i:i+1],
-                    is_regression=True
-                )[0]
-                model_perfs[name] = perf
-                
-                # Get class probabilities from the FINAL model
-                if name not in self.final_base_classifiers_:
-                     print(f"Warning: Final classifier for {name} not found in predict_proba. Skipping.")
-                     continue
-                clf = self.final_base_classifiers_[name]
+        Returns:
+        --------
+        y_proba : array-like
+            Predicted class probabilities.
+        """
+        # Scale the data
+        X_scaled = self.scaler.transform(X)
+        
+        # Get cluster features
+        cluster_features = self._get_cluster_features(X_scaled)
+        
+        # Combine original features with cluster features for selector
+        selector_features = np.column_stack([X_scaled, cluster_features])
+        
+        # Use selector model to predict which base model to use for each sample
+        selected_models = self.selector_model.predict(selector_features)
+        
+        # Ensure classes_ attribute is set
+        if self.classes_ is None:
+             raise RuntimeError("Model has not been fitted yet.")
+        n_classes = len(self.classes_)
+
+        # Use the selected model for each sample
+        y_proba = np.zeros((X.shape[0], n_classes))
+        
+        for i, model_name in enumerate(selected_models):
+            # Handle cases where the selected model might not be available
+            if model_name not in self.trained_base_models:
+                 # Fallback: Use the best available model or uniform probability
+                available_models = list(self.trained_base_models.keys())
+                if available_models:
+                    best_available = max(available_models, key=lambda m: self.base_model_accuracies.get(m, 0))
+                    model_to_use = self.trained_base_models[best_available]
+                    if self.verbose:
+                        print(f"Warning: Selected model '{model_name}' not available for proba sample {i}. Using fallback '{best_available}'.")
+                else:
+                    # No models available, return uniform probabilities
+                    if self.verbose:
+                        print(f"Warning: No models available for proba sample {i}. Returning uniform probabilities.")
+                    y_proba[i] = np.ones(n_classes) / n_classes
+                    continue # Skip to next sample
+            else:
+                 model_to_use = self.trained_base_models[model_name]
+
+            # Predict probabilities using the chosen model
+            if hasattr(model_to_use, 'predict_proba'):
                 try:
-                    model_class_probs[name] = clf.predict_proba(X_scaled[i:i+1])[0]
+                    proba = model_to_use.predict_proba([X_scaled[i]])[0]
+                    # Ensure proba aligns with self.classes_
+                    aligned_proba = np.zeros(n_classes)
+                    model_classes = model_to_use.classes_
+                    for j, cls in enumerate(model_classes):
+                        target_idx = np.where(self.classes_ == cls)[0]
+                        if len(target_idx) > 0:
+                            aligned_proba[target_idx[0]] = proba[j]
+                    y_proba[i] = aligned_proba
                 except Exception as e:
-                    print(f"Warning: Error predicting proba with final {name} in predict_proba: {e}. Skipping model.")
-                    # Remove from consideration if prediction fails
-                    model_perfs.pop(name, None)
-                    # Assign default probabilities if needed later
-                    model_class_probs[name] = np.ones(self.n_classes_) / self.n_classes_
-                    continue # Skip to next model
-
-            # Use the model with highest predicted performance among those that didn't fail
-            best_model = max(model_perfs, key=model_perfs.get) if model_perfs else self.classifier_names_[0]
-            proba[i] = model_class_probs[best_model]
+                    print(f"Error getting proba for sample {i} with model {model_name}: {e}. Returning uniform.")
+                    y_proba[i] = np.ones(n_classes) / n_classes
+            else:
+                # If model doesn't have predict_proba, create one-hot based on prediction
+                try:
+                    pred = model_to_use.predict([X_scaled[i]])[0]
+                    prob = np.zeros(n_classes)
+                    class_idx = np.where(self.classes_ == pred)[0]
+                    if len(class_idx) > 0:
+                         prob[class_idx[0]] = 1.0
+                    y_proba[i] = prob
+                except Exception as e:
+                    print(f"Error predicting for proba fallback for sample {i} with model {model_name}: {e}. Returning uniform.")
+                    y_proba[i] = np.ones(n_classes) / n_classes
+                    
+        return y_proba
+    
+    def save(self, filepath):
+        """
+        Save the model to disk.
         
-        return proba
+        Parameters:
+        -----------
+        filepath : str
+            Path to save the model.
+        """
+        joblib.dump(self, filepath)
     
-    def get_params(self, deep=True):
-        """Get parameters for this estimator."""
-        return {
-            "n_folds": self.n_folds,
-            "cv_repeats": self.cv_repeats,
-            "random_state": self.random_state,
-            "meta_learner": self.meta_learner,
-            "verbose": self.verbose,
-            "metric": self.metric,
-            "n_clusters": self.n_clusters,
-            "use_correctness_classifier": self.use_correctness_classifier,
-            "confidence_threshold": self.confidence_threshold,
-            "use_synthetic_data": self.use_synthetic_data,
-            "synthetic_multiplier": self.synthetic_multiplier,
-            "nn_hidden_layers": self.nn_hidden_layers,
-            "nn_dropout_rate": self.nn_dropout_rate,
-            "nn_learning_rate": self.nn_learning_rate,
-            "nn_epochs": self.nn_epochs,
-            "nn_early_stopping": self.nn_early_stopping,
-            "nn_batch_size": self.nn_batch_size,
-            "xgb_n_estimators": self.xgb_n_estimators,
-            "xgb_learning_rate": self.xgb_learning_rate,
-            "lgbm_n_estimators": self.lgbm_n_estimators,
-            "catboost_n_estimators": self.catboost_n_estimators,
-            "do_gridsearch": self.do_gridsearch, # Add new param
-            "grid_search_cache_path": self.grid_search_cache_path # Add new param
-        }
-
-    def set_params(self, **parameters):
-        """Set the parameters of this estimator."""
-        for parameter, value in parameters.items():
-            setattr(self, parameter, value)
-        # Re-validate meta-learner choice in case it was changed
-        self._validate_meta_learner()
-        return self
-    
-    def score(self, X, y):
-        """Returns the performance on the given test data and labels."""
-        y_pred = self.predict(X)
-        y_proba = self.predict_proba(X)
-        return self._evaluate_classifier(y, y_pred, y_proba)
+    @classmethod
+    def load(cls, filepath):
+        """
+        Load a model from disk.
+        
+        Parameters:
+        -----------
+        filepath : str
+            Path to the saved model.
+            
+        Returns:
+        --------
+        model : ModelSelectorClassifier
+            The loaded model.
+        """
+        return joblib.load(filepath)

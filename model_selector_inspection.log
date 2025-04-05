@@ -1,0 +1,130 @@
+Model Selector Inspection Log
+================================================================================
+
+--- Inspection for ModelSelector with Feature Selection: Ensemble ---
+Overall Test Accuracy: 0.8571
+
+Base Model Accuracies (on full training data):
+  RF: 1.0000
+  GB: 1.0000
+  XGB: 0.9928
+  SVM: 0.9784
+  DT: 0.9712
+  LR: 0.9424
+  NB: 0.9065
+  KNN: 0.8777
+
+Model Selection Distribution (on test set):
+  SVM: 26 samples (74.3%)
+  RF: 9 samples (25.7%)
+------------------------------------------------------------
+
+--- Inspection for ModelSelector with Feature Selection: RandomForest ---
+Overall Test Accuracy: 0.8857
+
+Base Model Accuracies (on full training data):
+  RF: 1.0000
+  GB: 1.0000
+  XGB: 1.0000
+  SVM: 0.9784
+  DT: 0.9712
+  LR: 0.8993
+  KNN: 0.8849
+  NB: 0.8633
+
+Model Selection Distribution (on test set):
+  RF: 32 samples (91.4%)
+  SVM: 3 samples (8.6%)
+------------------------------------------------------------
+
+--- Inspection for ModelSelector with Feature Selection: Boruta ---
+Overall Test Accuracy: 0.8857
+
+Base Model Accuracies (on full training data):
+  RF: 1.0000
+  GB: 1.0000
+  XGB: 0.9784
+  SVM: 0.9568
+  DT: 0.9496
+  KNN: 0.8705
+  LR: 0.8561
+  NB: 0.8129
+
+Model Selection Distribution (on test set):
+  RF: 33 samples (94.3%)
+  SVM: 2 samples (5.7%)
+------------------------------------------------------------
+
+--- Inspection for ModelSelector with Feature Selection: SI ---
+Overall Test Accuracy: 0.9429
+
+Base Model Accuracies (on full training data):
+  RF: 1.0000
+  GB: 1.0000
+  XGB: 1.0000
+  DT: 0.9928
+  SVM: 0.9784
+  LR: 0.9137
+  KNN: 0.8633
+  NB: 0.8489
+
+Model Selection Distribution (on test set):
+  RF: 33 samples (94.3%)
+  SVM: 2 samples (5.7%)
+------------------------------------------------------------
+
+--- Inspection for ModelSelector with Feature Selection: weighted_SI ---
+Overall Test Accuracy: 0.9143
+
+Base Model Accuracies (on full training data):
+  RF: 1.0000
+  GB: 1.0000
+  XGB: 1.0000
+  SVM: 0.9928
+  DT: 0.9928
+  LR: 0.9568
+  KNN: 0.8705
+  NB: 0.8561
+
+Model Selection Distribution (on test set):
+  RF: 26 samples (74.3%)
+  SVM: 8 samples (22.9%)
+  LR: 1 samples (2.9%)
+------------------------------------------------------------
+
+--- Inspection for ModelSelector with Feature Selection: multi_resolution_SI ---
+Overall Test Accuracy: 1.0000
+
+Base Model Accuracies (on full training data):
+  SVM: 1.0000
+  GB: 1.0000
+  XGB: 1.0000
+  RF: 0.9928
+  DT: 0.9928
+  LR: 0.9568
+  KNN: 0.8633
+  NB: 0.8489
+
+Model Selection Distribution (on test set):
+  RF: 34 samples (97.1%)
+  SVM: 1 samples (2.9%)
+------------------------------------------------------------
+
+--- Inspection for ModelSelector with Feature Selection: chi2 ---
+Overall Test Accuracy: 0.9143
+
+Base Model Accuracies (on full training data):
+  RF: 1.0000
+  GB: 1.0000
+  XGB: 0.9712
+  SVM: 0.9568
+  DT: 0.9496
+  NB: 0.9209
+  LR: 0.9137
+  KNN: 0.8705
+
+Model Selection Distribution (on test set):
+  RF: 29 samples (82.9%)
+  LR: 4 samples (11.4%)
+  SVM: 2 samples (5.7%)
+------------------------------------------------------------

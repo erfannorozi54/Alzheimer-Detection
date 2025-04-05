@@ -24,6 +24,7 @@ import warnings
 import logging
 import json # Added for JSON logging
 import copy  # Add import for deep copying objects
+from collections import Counter # Added for model distribution counting
 
 # Import custom modules
 from utils import feature_selection_comparison, feature_selector, model_selector_classifier
@@ -59,7 +60,7 @@ print(f"Dataset loaded: {X.shape[0]} samples with {X.shape[1]} features")
 # STEP 2: Compare feature selection methods
 # =====================================================================================
 print("\nComparing feature selection methods...")
-if False:
+if True:
     # Initialize comparison
     comparison = feature_selection_comparison.FeatureSelectionComparison(X, y, n_features=10)
 
@@ -213,6 +214,13 @@ if False:
 # STEP 3: Compare classification models using 3 different feature selection methods
 # =====================================================================================
 print("\n\nComparing classification models with different feature selection methods...")
+
+# Initialize inspection log file (overwrite each run)
+inspection_log_file = 'model_selector_inspection.log'
+with open(inspection_log_file, 'w') as f_inspect:
+    f_inspect.write("Model Selector Inspection Log\n")
+    f_inspect.write("="*80 + "\n")
+print(f"Model Selector inspection details will be logged to: {inspection_log_file}")
 
 # Split the data - using the SAME preprocessed data from Step 1
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=6)
@@ -401,14 +409,68 @@ for fs_name, fs_method in feature_selection_methods.items():
         print("\nClassification Report:")
         print(classification_report(y_test, y_pred))
 
-        # Log ModelSelectorClassifier accuracy and store the best one
+        # --- Log ModelSelectorClassifier details for EVERY instance ---
         if clf_name == "ModelSelector":
-            logging.info(f"ModelSelectorClassifier Accuracy ({fs_name}): {accuracy:.4f}")
+            logging.info(f"ModelSelectorClassifier Accuracy ({fs_name}): {accuracy:.4f}") # Keep general log
+
+            # Extract the trained model and scaler instances
+            model_instance = best_estimator.named_steps['classifier']
+            scaler_instance = best_estimator.named_steps['scaler']
+
+            # Append inspection details to the specific log file
+            with open(inspection_log_file, 'a') as f_inspect:
+                f_inspect.write(f"\n--- Inspection for ModelSelector with Feature Selection: {fs_name} ---\n")
+                f_inspect.write(f"Overall Test Accuracy: {accuracy:.4f}\n")
+
+                # 1. Log Base Model Accuracies (calculated during fit)
+                f_inspect.write("\nBase Model Accuracies (on full training data):\n")
+                if hasattr(model_instance, 'base_model_accuracies') and model_instance.base_model_accuracies:
+                    # Sort by accuracy descending for readability
+                    sorted_accuracies = sorted(model_instance.base_model_accuracies.items(), key=lambda item: item[1], reverse=True)
+                    for name, acc in sorted_accuracies:
+                        f_inspect.write(f"  {name}: {acc:.4f}\n")
+                else:
+                    f_inspect.write("  Base model accuracies not available.\n")
+
+                # 2. Log Model Selection Distribution on Test Set
+                f_inspect.write("\nModel Selection Distribution (on test set):\n")
+                try:
+                    # Scale the test data using the pipeline's scaler
+                    X_test_scaled = scaler_instance.transform(X_test_selected)
+
+                    # Get cluster features for the scaled test data
+                    cluster_features_test = model_instance._get_cluster_features(X_test_scaled)
+
+                    # Combine original scaled features with cluster features
+                    selector_features_test = np.column_stack([X_test_scaled, cluster_features_test])
+
+                    # Predict which base model is selected for each test sample
+                    selected_models_test = model_instance.selector_model.predict(selector_features_test)
+
+                    # Calculate distribution
+                    model_distribution = Counter(selected_models_test)
+                    total_samples = len(X_test_selected)
+
+                    if total_samples > 0:
+                         # Sort by count descending for readability
+                        sorted_distribution = sorted(model_distribution.items(), key=lambda item: item[1], reverse=True)
+                        for model_name, count in sorted_distribution:
+                            percentage = (count / total_samples) * 100
+                            f_inspect.write(f"  {model_name}: {count} samples ({percentage:.1f}%)\n")
+                    else:
+                         f_inspect.write("  Test set is empty.\n")
+
+                except Exception as e:
+                    f_inspect.write(f"  Error calculating model distribution: {e}\n")
+
+                f_inspect.write("-" * 60 + "\n")
+
+            # Store the best one (optional, keep if needed for later comparison)
             if accuracy > best_model_selector_accuracy:
                 best_model_selector_accuracy = accuracy
                 best_model_selector_pipeline = best_estimator # Store the fitted pipeline
                 best_model_selector_fs_name = fs_name
-                print(f"*** New best ModelSelector found: FS='{fs_name}', Accuracy={accuracy:.4f} ***")
+                # print(f"*** New best ModelSelector found: FS='{fs_name}', Accuracy={accuracy:.4f} ***") # Optional print
 
 
 # Create comparison DataFrame
@@ -446,57 +508,3 @@ for fs_name, clf_params in best_params_log.items():
     print(f"\nFeature Selection: {fs_name}")
     for clf_name, params in clf_params.items():
         print(f"  {clf_name}: {params}")
-
-
-# =====================================================================================
-# STEP 4: Model Selector Inspection (Added Section)
-# =====================================================================================
-print("\n\n" + "=" * 80)
-print("STEP 4: Model Selector Inspection")
-print("=" * 80)
-
-if best_model_selector_pipeline and best_model_selector_fs_name:
-    print(f"Inspecting the best ModelSelectorClassifier trained with '{best_model_selector_fs_name}' feature selection.")
-    print(f"Best Accuracy achieved: {best_model_selector_accuracy:.4f}")
-
-    # --- Setup Logger for Inspection ---
-    inspection_log_file = 'model_selector_inspection.log'
-    # Remove existing handler if any, to avoid duplicate logs
-    for handler in logging.root.handlers[:]:
-        if isinstance(handler, logging.FileHandler) and handler.baseFilename.endswith(inspection_log_file):
-            logging.root.removeHandler(handler)
-            
-    inspection_logger = logging.getLogger('ModelSelectorInspection')
-    inspection_logger.setLevel(logging.INFO)
-    # Use a specific formatter if needed, here using basic JSON structure via the predict method
-    fh = logging.FileHandler(inspection_log_file, mode='w') # Overwrite log file each run
-    fh.setFormatter(logging.Formatter('%(message)s')) # Log only the message (JSON string)
-    inspection_logger.addHandler(fh)
-    inspection_logger.propagate = False # Prevent logs from going to the root logger
-
-    print(f"Detailed inspection logs will be saved to: {inspection_log_file}")
-
-    # --- Prepare Data for Inspection ---
-    print(f"Applying '{best_model_selector_fs_name}' feature selection to the test set...")
-    # Re-run the specific feature selection method on the original training data (as fs was initialized with it)
-    fs_method_to_run = feature_selection_methods[best_model_selector_fs_name]
-    selected_features_for_inspection = fs_method_to_run()
-    if isinstance(selected_features_for_inspection, dict):
-        selected_features_for_inspection = list(selected_features_for_inspection.keys())
-
-    # Select features from the original test set
-    X_test_selected_for_inspection = X_test[selected_features_for_inspection]
-    print(f"Using {len(selected_features_for_inspection)} features for inspection.")
-
-    # --- Run Prediction with Logging ---
-    print("Running prediction on the test set with detailed logging enabled...")
-    # The pipeline already contains the scaler and the trained ModelSelectorClassifier
-    # We pass y_test to enable correctness logging
-    _ = best_model_selector_pipeline.predict(X_test_selected_for_inspection, y_true=y_test, logger=inspection_logger)
-
-    print("Inspection complete. Logs saved.")
-
-else:
-    print("Skipping Model Selector Inspection: No successful ModelSelectorClassifier training recorded.")
-
-print("\nScript finished.")
