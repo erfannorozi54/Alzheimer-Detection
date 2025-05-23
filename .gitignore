@@ -5,3 +5,11 @@ __pycache__/*
 ./utils/__pycache__
 results
 ./results/*.png
+**/*.log
+*.log
+model_selection.log
+catboost_info/learn_error.tsv
+model_selection.log
+catboost_info/
+model_selection.log
+*.png
